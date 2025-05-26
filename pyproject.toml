@@ -1,0 +1,72 @@
+[build-system]
+requires= ["setuptools>=42.0", "wheel"]
+build-backend= "setuptools.build_meta"
+
+[project]
+name = "ELIGIBLTY"
+version = "0.0.1"
+description = "scheduling eligibilty api job"
+readme = "README.md"
+authors = [
+    {name = "Muhammed Amr", email = "muhammedamr57@gmail.com"}
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+]
+keywords = ["machine learning", "python", "AI", "data science"]
+requires-python = ">=3.10"
+
+dependencies = [
+    "pandas==2.2.3",
+    "schedule==1.2.2",
+    "tqdm==4.67.1",
+    "sqlalchemy>=1.4.36,<2.1",
+    "numpy==2.0.2",
+    "requests==2.32.3",
+    "cx_Oracle==8.3.0",
+    "setuptools==75.8.0",
+    "apache-airflow==2.10.4",
+    "apache-airflow[mssql]==2.10.4",
+    "pymssql==2.2.8",
+    "python-dotenv==1.0.0"
+]
+
+[project.optional-dependencies]
+testing = [
+    "pytest==8.3.4",
+    "Sphinx==8.1.3",
+    "sphinx-rtd-theme==3.0.2",
+    "sphinx-autodoc-typehints==2.5.0",
+    "pytest-cov==6.0.0",
+    "mypy==1.13.0",
+    "flake8==7.1.1",
+    "tox==4.23.2",
+    "black==24.10.0",
+    "pytest-mock==3.14.0",
+    "pytest-watcher==0.4.3",
+    "autopep8==2.3.1"
+]
+
+[tool.pytest.ini_options]
+addopts = "--cov=insight"
+testpaths = [
+    "test",
+]
+
+[tool.mypy]
+mypy_path = "src"
+check_untyped_defs = true
+disallow_any_generics = true
+ignore_missing_imports = true
+no_implicit_optional = true
+show_error_codes = true
+strict_equality = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unreachable = true
+warn_unused_configs = true
+no_implicit_reexport = true

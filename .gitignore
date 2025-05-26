@@ -130,11 +130,13 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.airflow_env
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+airflow_env/
 
 # Spyder project settings
 .spyderproject
@@ -172,3 +174,21 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+airflow-webserver.pid
+# Airflow configuration file
+
+# Airflow logs
+logs/
+# Airflow DAGs
+dags/__pycache__/
+# Airflow plugins
+plugins/__pycache__/
+# Airflow secrets backend
+secrets/
+# Airflow database
+airflow.db
+data/
+test_mails.py
+passcode.json
+webserver_config.py
+airflow.cfg
