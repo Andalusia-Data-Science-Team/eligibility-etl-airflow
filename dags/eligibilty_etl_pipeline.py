@@ -20,6 +20,7 @@ from src.utils import Iqama_table, get_conn_engine, map_row, change_date, send_j
 
 CAIRO_TZ = pendulum.timezone('Africa/Cairo')
 
+
 def failure_callback(context):
     """Enhanced failure callback with SMTP email sending"""
     try:
@@ -177,7 +178,7 @@ def success_callback(context):
 default_args = {
     'owner': 'airflow',
     'depends_on_past': False,
-    'retries': 0,
+    'retries': 1,
     'retry_delay': timedelta(minutes=3),
     'email_on_failure': True,
     'email_on_retry': False,
@@ -332,6 +333,8 @@ def eligibility_etl_pipeline():
             # Apply business rules
             df.loc[(df["note"] == "1680 ") & (df["class"].isna()), "class"] = "out-network"
             df.loc[(df["note"] == "1658 ") & (df["class"].isna()), "class"] = "not-active"
+            
+            print(f"The number of the null values equal: {df['outcome'].isna().sum()}")
 
             final_df = df[["visit_id", "outcome", "note", "class", "insertion_date"]]
             

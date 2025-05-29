@@ -1,0 +1,46 @@
+version: '3'
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: airflow_db
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql-db-volume:/var/lib/mysql
+
+  airflow-webserver:
+    build: .
+    restart: always
+    depends_on:
+      - mysql
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: mysql+pymysql://root:root123@mysql/airflow_db
+      AIRFLOW__WEBSERVER__SECRET_KEY: 7G/RFrMkC8rszm3wyqahkA==
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./plugins:/opt/airflow/plugins
+      - ./src:/opt/airflow/src
+    ports:
+      - "8080:8080"
+    command: webserver
+
+  airflow-scheduler:
+    build: .
+    restart: always
+    depends_on:
+      - airflow-webserver
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: mysql+pymysql://root:root123@mysql/airflow_db
+      AIRFLOW__WEBSERVER__SECRET_KEY: 7G/RFrMkC8rszm3wyqahkA==
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./plugins:/opt/airflow/plugins
+      - ./src:/opt/airflow/src
+    command: scheduler
+
+volumes:
+  mysql-db-volume:

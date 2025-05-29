@@ -406,12 +406,12 @@ def send_json_to_api(json_data):
 def extract_outcome(response):
     # Handle None responses
     if response is None:
-        print("Response is None. Cannot extract outcome.")
+        # print("Response is None. Cannot extract outcome.")
         return "Null"
     
     # Check if the status is "success"
     if response.get("status") != "success":
-        print("Status is not 'success'. Cannot proceed.")
+        # print("Status is not 'success'. Cannot proceed.")
         return "Null"
 
     # Safely get entries

@@ -32,7 +32,10 @@ dependencies = [
     "apache-airflow==2.10.4",
     "apache-airflow[mssql]==2.10.4",
     "pymssql==2.2.8",
-    "python-dotenv==1.0.0"
+    "python-dotenv==1.0.0",
+    "pyodbc>=4.0.0"
+
+    
 ]
 
 [project.optional-dependencies]
