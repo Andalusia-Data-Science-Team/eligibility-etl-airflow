@@ -13,19 +13,18 @@ authors = [
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.12",
     "Operating System :: POSIX :: Linux",
     "Operating System :: Microsoft :: Windows",
 ]
 keywords = ["machine learning", "python", "AI", "data science"]
-requires-python = ">=3.10"
+requires-python = "<3.12"
 
 dependencies = [
     "pandas==2.2.3",
     "schedule==1.2.2",
     "tqdm==4.67.1",
     "sqlalchemy>=1.4.36,<2.1",
-    "numpy==2.0.2",
+    "numpy==1.26.4",
     "requests==2.32.3",
     "cx_Oracle==8.3.0",
     "setuptools==75.8.0",
@@ -33,9 +32,12 @@ dependencies = [
     "apache-airflow[mssql]==2.10.4",
     "pymssql==2.2.8",
     "python-dotenv==1.0.0",
-    "pyodbc>=4.0.0"
-
-    
+    "pyodbc>=4.0.0",
+    "openai==1.77.0",
+    "langchain==0.2.8",
+    "langchain-community==0.2.5",
+    "langchain-core==0.2.43",
+    "langchain-fireworks==0.1.7"
 ]
 
 [project.optional-dependencies]
