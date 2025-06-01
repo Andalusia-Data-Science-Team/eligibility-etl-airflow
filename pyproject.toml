@@ -1,12 +1,12 @@
 [build-system]
-requires= ["setuptools>=42.0", "wheel"]
-build-backend= "setuptools.build_meta"
+requires = ["setuptools>=42.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
-name = "ELIGIBLTY"
+name = "eligibility"  # Fixed typo and lowercase
 version = "0.0.1"
-description = "scheduling eligibilty api job"
-readme = "README.md"
+description = "scheduling eligibility api job"
+# Remove readme reference or create the file
 authors = [
     {name = "Muhammed Amr", email = "muhammedamr57@gmail.com"}
 ]
@@ -28,14 +28,10 @@ dependencies = [
     "numpy==2.0.2",
     "requests==2.32.3",
     "cx_Oracle==8.3.0",
-    "setuptools==75.8.0",
-    "apache-airflow==2.10.4",
-    "apache-airflow[mssql]==2.10.4",
+    # Remove apache-airflow from here since it's already in base image
     "pymssql==2.2.8",
     "python-dotenv==1.0.0",
     "pyodbc>=4.0.0"
-
-    
 ]
 
 [project.optional-dependencies]
@@ -55,7 +51,7 @@ testing = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "--cov=insight"
+addopts = "--cov=eligibility"  # Updated to match package name
 testpaths = [
     "test",
 ]

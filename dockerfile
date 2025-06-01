@@ -17,21 +17,34 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Switch back to airflow user
+# Create a working directory for building the package and set ownership
+RUN mkdir -p /tmp/build && chown -R airflow:root /tmp/build
+
+# Copy project files to temp build directory with proper ownership
+COPY --chown=airflow:root pyproject.toml setup.cfg setup.py /tmp/build/
+COPY --chown=airflow:root src/ /tmp/build/src/
+
+# Copy runtime files to airflow directory with proper ownership
+COPY --chown=airflow:root sql/ /opt/airflow/sql/
+COPY --chown=airflow:root passcode.json /opt/airflow/
+
+# Create DAGs directory (if not mounting via docker-compose)
+RUN mkdir -p /opt/airflow/dags && chown -R airflow:root /opt/airflow/dags
+
+# Switch to airflow user before pip operations
 USER airflow
 
-# Install Python packages
-RUN pip install --no-cache-dir \
-    pymysql \
-    apache-airflow-providers-openlineage>=1.8.0 \
-    pyodbc
+# Build and install the package as airflow user
+WORKDIR /tmp/build
+RUN pip install --upgrade pip setuptools wheel \
+    && pip install .
 
-# Copy project files and install
-COPY pyproject.toml setup.cfg setup.py /opt/airflow/
-COPY src/ /opt/airflow/src/
-COPY sql/ /opt/airflow/sql/
-COPY passcode.json /opt/airflow/
+# Clean up build directory as airflow user
+RUN rm -rf /tmp/build
+
 WORKDIR /opt/airflow
 
-RUN pip install --upgrade pip setuptools \
-    && pip install -e .
+# Install additional Python packages that aren't in your package dependencies
+RUN pip install --no-cache-dir \
+    pymysql \
+    apache-airflow-providers-openlineage>=1.8.0

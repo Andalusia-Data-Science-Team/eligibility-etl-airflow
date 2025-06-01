@@ -194,7 +194,7 @@ default_args = {
 
 
 @dag(
-    dag_id="eligibility_job",
+    dag_id="eligibility_job_",
     default_args=default_args,
     start_date=pendulum.now(CAIRO_TZ).subtract(days=1),
     schedule_interval='0 0,4,8,12,16,20 * * *',  # Every 4 hours
