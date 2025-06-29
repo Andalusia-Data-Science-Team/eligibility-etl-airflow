@@ -27,10 +27,12 @@ COPY --chown=airflow:root src/ /tmp/build/src/
 # Copy runtime files to airflow directory with proper ownership
 COPY --chown=airflow:root sql/ /opt/airflow/sql/
 COPY --chown=airflow:root passcode.json /opt/airflow/
+COPY --chown=airflow:root .env /opt/airflow/
+COPY --chown=airflow:root etl_analysis.csv /opt/airflow/
 
 # Create DAGs directory (if not mounting via docker-compose)
-RUN mkdir -p /opt/airflow/dags && chown -R airflow:root /opt/airflow/dags
-
+COPY --chown=airflow:root dags/ /opt/airflow/dags/
+COPY --chown=airflow:root src/ /opt/airflow/src/
 # Switch to airflow user before pip operations
 USER airflow
 

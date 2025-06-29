@@ -190,5 +190,6 @@ airflow.db
 data/
 test_mails.py
 passcode.json
+passcodes.json
 webserver_config.py
 airflow.cfg

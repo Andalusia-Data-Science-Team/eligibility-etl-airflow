@@ -226,7 +226,7 @@ def eligibility_etl_pipeline():
     def extract_data(**context):
         """Extract data with overlap handling to prevent data gaps"""
         try:
-            source = "AHJ_DOT-CARE"
+            source = "LIVE"
             query_path = Path(__file__).resolve().parent.parent / "sql" / "eligibility_dotcare.sql"
             query = query_path.read_text()
             current_time = datetime.now()
@@ -375,9 +375,6 @@ def eligibility_etl_pipeline():
                 iqama_df.to_csv(f"data/DOT-CARE/iqama_{timestamp}.csv", index=False)
                 update_table(table_name="Iqama_dotcare", df=iqama_df)
                 print(f"Loaded {len(iqama_df)} Iqama records")
-                
-                # Clean up temp file
-                os.remove(iqama_info['file_path'])
             
             # Process Eligibility data
             if eligibility_info:
@@ -386,20 +383,25 @@ def eligibility_etl_pipeline():
                 update_table(table_name="Eligibility_dotcare", df=eligibility_df)
                 print(f"Loaded {len(eligibility_df)} Eligibility records")
                 
-                # Clean up temp file
-                os.remove(eligibility_info['file_path'])
-                
         except Exception as e:
             print(f"Error in load_data: {str(e)}")
             raise
 
     @task
-    def cleanup_extraction_file(extraction_info):
+    def cleanup_extraction_file(extraction_info, eligibility_info, iqama_info):
         """Clean up the extracted data file"""
         try:
             if extraction_info and os.path.exists(extraction_info['file_path']):
                 os.remove(extraction_info['file_path'])
                 print(f"Cleaned up extraction file: {extraction_info['file_path']}")
+                
+            if eligibility_info and os.path.exists(eligibility_info['file_path']):
+                os.remove(eligibility_info['file_path'])
+                print(f"Cleaned up extraction file: {eligibility_info['file_path']}")
+                
+            if iqama_info and os.path.exists(iqama_info['file_path']):
+                os.remove(iqama_info['file_path'])
+                print(f"Cleaned up extraction file: {iqama_info['file_path']}")
         except Exception as e:
             print(f"Error cleaning up extraction file: {str(e)}")
             # Don't raise here as cleanup failure shouldn't fail the DAG
@@ -416,7 +418,7 @@ def eligibility_etl_pipeline():
     loaded = load_data(iqama_transformed, eligibility_transformed)
     
     # Clean up extraction file after loading is complete
-    loaded >> cleanup_extraction_file(extracted)
+    loaded >> cleanup_extraction_file(extracted, iqama_transformed, eligibility_transformed)
 
 
 dag = eligibility_etl_pipeline()

@@ -570,7 +570,7 @@ def get_conn_engine(source):
         conn_str = f"oracle+cx_oracle://{passcodes['user']}:{password}@{passcodes['host']}:{passcodes['port']}/{passcodes['service']}"
         return create_engine(conn_str)
     
-    elif source == "AHJ_DOT-CARE":
+    elif source == "LIVE":
         server, db, uid, pwd, driver = (
             passcodes['Server'],
             passcodes['Database'],
