@@ -211,7 +211,7 @@ def dev_response(info, services, model="accounts/fireworks/models/deepseek-v3"):
     - response (str): Model's text response.
     """
     try:
-        json_model = ChatFireworks(model=model, temperature=0.0, max_tokens=11000, model_kwargs={"top_k": 1}, request_timeout=(60, 120)).bind(
+        json_model = ChatFireworks(model=model, temperature=0.0, max_tokens=11000, model_kwargs={"top_k": 1, "stream": True}, request_timeout=(120, 120)).bind(
             response_format={"type": "json_object", "schema": schema}
         )
 
@@ -222,11 +222,18 @@ def dev_response(info, services, model="accounts/fireworks/models/deepseek-v3"):
         ]
 
         start = time.time()
-        response = json_model.invoke(chat_history).content
+        stream = json_model.stream(chat_history)
+        
+        full_response = ""
+
+        for chunk in stream:
+            # Access the content from each chunk
+            if hasattr(chunk, 'content') and chunk.content:
+                full_response += chunk.content
         end = time.time()
         elapsed = end - start
 
-        return elapsed, response
+        return elapsed, full_response
     except Exception as e:
         logger.exception(f"Error generating AI response: {e}")
         raise

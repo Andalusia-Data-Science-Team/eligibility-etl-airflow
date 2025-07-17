@@ -38,7 +38,10 @@ dependencies = [
     "langchain==0.2.8",
     "langchain-community==0.2.5",
     "langchain-core==0.2.43",
-    "langchain-fireworks==0.1.7"
+    "langchain-fireworks==0.1.7",
+    "beautifulsoup4==4.12.3",
+    "lxml==5.2.1",
+    "rapidfuzz==3.13.0",
 ]
 
 
