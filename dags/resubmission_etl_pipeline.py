@@ -13,22 +13,25 @@ import json
 import os
 import sys
 import pandas as pd
-import numpy as np
+import logging
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from src.final_diagnosis import read_data, generate_ep_key, transform_loop, update_table
+from src.llm_utils import read_data, update_table
+from src.resubmission import transform_loop
+
+# Configure debug logger
+logger = logging.getLogger("debug_logs")
+logger.setLevel(logging.DEBUG)
 
 with open("passcode.json", "r") as file:
     db_configs = json.load(file)
 db_configs = db_configs["DB_NAMES"]
-read_passcode = db_configs["BI_READ"] 
+write_passcode = db_configs["BI"] 
 live_passcode = db_configs["LIVE"]
 replica_passcode = db_configs["AHJ_DOT-CARE"]
 
-with open(Path("sql") / "final_diagnosis.sql", "r") as file:
+with open(Path("sql") / "resubmission.sql", "r") as file:
     query = file.read()
-with open(Path("sql") / "clinical_sheets.sql", "r") as file:
-    cn_query = file.read()
 
 CAIRO_TZ = pendulum.timezone('Africa/Cairo')
 
@@ -194,21 +197,21 @@ default_args = {
 
 
 @dag(
-    dag_id="final_diagnosis_job",
+    dag_id="resubmission_job",
     default_args=default_args,
     start_date=pendulum.now(CAIRO_TZ).subtract(days=1),
     schedule_interval="30 7 * * *",
     catchup=False,
-    tags=["final diagnosis", "AHJ", "medical audit"],
+    tags=["resubmission", "AHJ"],
     max_active_runs=2,  # Prevent overlapping runs
-    description="ETL pipeline for AHJ Final Diagnosis for Medical Audit team",
+    description="ETL pipeline for AHJ Claims Resubmission Copilot",
     # DAG-level email configuration
     params={
         'email_on_dag_failure': True,
         'notification_emails': ['Nadine.ElSokily@Andalusiagroup.net',]
     }
 )
-def final_diagnosis_etl_pipeline():
+def resubmission_etl_pipeline():
     @task(
         email_on_failure=True,
         email_on_retry=False,
@@ -219,45 +222,21 @@ def final_diagnosis_etl_pipeline():
                'Nadine.ElSokily@Andalusiagroup.net',]
     )
     def extract():
-        bi = read_data(query, read_passcode)
-        bi = bi.drop_duplicates(keep='last')
-        if bi.empty:
-            raise AirflowSkipException("Quitting final diagnosis job")
-        try:    
-            live = read_data(cn_query, replica_passcode)    
-            if live.empty:
-                print("An issue was detected with the replica, reading from live database..")
-                live = read_data(cn_query, live_passcode)
-        except Exception as e:
-            print(e)
-            live = read_data(cn_query, live_passcode)
-        live['VisitID'] = live['VisitID'].astype(str)
-        live['Episode_key'] = live.apply(lambda row: generate_ep_key(row["VisitID"]), axis=1)
-        df = bi.merge(live, how='left', on='Episode_key')
-        df = df.loc[~df['DiagnoseName'].isna()]
-
-        unique_visits = df['Episode_key'].unique()
-        visit_chunks = np.array_split(unique_visits, 4)
-        df1 = df[df['Episode_key'].isin(visit_chunks[0])]
-        df2 = df[df['Episode_key'].isin(visit_chunks[1])]
-        df3 = df[df['Episode_key'].isin(visit_chunks[2])]
-        df4 = df[df['Episode_key'].isin(visit_chunks[3])]
-
+        df = read_data(query, replica_passcode, logger)
+        if df.empty:
+            logger.debug("An issue was detected with the replica, reading from live database..")
+            try:    
+                df = read_data(query, live_passcode, logger)    
+                if df.empty:
+                    raise AirflowSkipException("No data was found, quitting resubmission job")
+            except Exception as e:
+                logger.debug(e)
+        df = df.drop_duplicates(keep='last')
+        df = df.loc[df['VisitClassificationEnName']!='Ambulatory']
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        temp1 = f"/tmp/extracted1_final_diagnosis_{timestamp}.parquet"
-        temp2 = f"/tmp/extracted2_final_diagnosis_{timestamp}.parquet"
-        temp3 = f"/tmp/extracted3_final_diagnosis_{timestamp}.parquet"
-        temp4 = f"/tmp/extracted4_final_diagnosis_{timestamp}.parquet"
-
-        df1.to_parquet(temp1)
-        df2.to_parquet(temp2)
-        df3.to_parquet(temp3)
-        df4.to_parquet(temp4)
-
-        return [temp1, temp2, temp3 , temp4]
-    @task
-    def get_item(lst, idx):
-        return lst[idx]
+        temp = f"/tmp/extracted_resubmission_{timestamp}.parquet"
+        df.to_parquet(temp)
+        return temp
     @task(
         email_on_failure=True,
         email_on_retry=False,
@@ -265,11 +244,10 @@ def final_diagnosis_etl_pipeline():
     )
     def transform(extracted_data):
         extracted_data = pd.read_parquet(extracted_data)
-        result_df = transform_loop(extracted_data)
+        result_df = transform_loop(extracted_data, logger)
     
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        df_no = np.random.randint(0, 1000)
-        result_file = f"/tmp/result_{df_no}_{timestamp}.parquet"
+        result_file = f"/tmp/result_resubmission.parquet"
         result_df.to_parquet(result_file)
 
         return result_file
@@ -278,47 +256,30 @@ def final_diagnosis_etl_pipeline():
         email_on_retry=False,
         email=['Nadine.ElSokily@Andalusiagroup.net']
     )
-    def load(db_configs, result_file):
+    def load(result_file):
         result_df = pd.read_parquet(result_file)
-        update_table(db_configs["BI_READ"], "Final_Diagnosis", result_df)
+        update_table(write_passcode, "Resubmission_Copilot", result_df, logger)
     @task
     def cleanup_files(extracted_data, transformed_data):
         """Clean up the extracted data file"""
         try:
             if extracted_data and os.path.exists(extracted_data):
                 os.remove(extracted_data)
-                print(f"Cleaned up extraction file: {extracted_data}")
+                logger.info(f"Cleaned up extraction file: {extracted_data}")
                 
             if transformed_data and os.path.exists(transformed_data):
                 os.remove(transformed_data)
-                print(f"Cleaned up transformed file: {transformed_data}")
+                logger.info(f"Cleaned up transformed file: {transformed_data}")
 
         except Exception as e:
-            print(f"Error cleaning up file: {str(e)}")
+            logger.debug(f"Error cleaning up file: {str(e)}")
             # Don't raise here as cleanup failure shouldn't fail the DAG
 
-    # DAG flow with parallel load
-    dfs = extract()
+    # DAG flow
+    df = extract()
+    t = transform(df)
+    l = load(t)
 
-    df1 = get_item(dfs, 0)
-    t1 = transform(df1)
-    l1 = load(db_configs, t1)
+    t >> l >> cleanup_files(df, t)
 
-    df2 = get_item(dfs, 1)
-    t2 = transform(df2)
-    l2 = load(db_configs, t2)
-
-    df3 = get_item(dfs, 2)
-    t3 = transform(df3)
-    l3 = load(db_configs, t3)
-
-    df4 = get_item(dfs, 3)
-    t4 = transform(df4)
-    l4 = load(db_configs, t4)
-
-    t1 >> l1 >> cleanup_files(df1, t1)
-    t2 >> l2 >> cleanup_files(df2, t2)
-    t3 >> l3 >> cleanup_files(df3, t3)
-    t4 >> l4 >> cleanup_files(df4, t4)
-
-dag = final_diagnosis_etl_pipeline()
+dag = resubmission_etl_pipeline()

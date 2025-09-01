@@ -1,16 +1,20 @@
 import pandas as pd
+import numpy as np
 import re
 import json
+import ast
 import time
 import urllib.request
 import urllib.parse
 import urllib.error
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from tqdm import tqdm
 from dotenv import load_dotenv
 from langchain_fireworks import ChatFireworks
 from langchain_core.messages import HumanMessage, SystemMessage
+from fireworks.client.error import RateLimitError
 import warnings
+import traceback
 import logging
 from rapidfuzz import fuzz
 from bs4 import BeautifulSoup
@@ -99,12 +103,12 @@ def get_conn_engine(passcodes):
             passcodes["driver"],
         )
         params = urllib.parse.quote_plus(
-        f"DRIVER={driver};"
-        f"SERVER={server};"
-        f"DATABASE={db};"
-        f"UID={uid};"
-        f"PWD={pwd};"
-        f"Connection Timeout=300;"
+            f"DRIVER={driver};"
+            f"SERVER={server};"
+            f"DATABASE={db};"
+            f"UID={uid};"
+            f"PWD={pwd};"
+            f"Connection Timeout=300;"
         )
         engine = create_engine("mssql+pyodbc:///?odbc_connect={}".format(params))
         logger.debug(f"Database connection engine created for {server}/{db}")
@@ -120,7 +124,7 @@ def get_conn_engine(passcodes):
 def read_data(query, passcode):
     """
     Executes a SQL query using get_conn_engine. If the first attempt fails, waits for 5 minutes before trying again.
-    
+
     Returns:
         pandas DataFrame with query results
     """
@@ -132,7 +136,7 @@ def read_data(query, passcode):
         logger.debug(f"First attempt failed with error: {str(e)}")
         logger.debug("Waiting 5 minutes before retrying...")
         time.sleep(300)  # Wait for 5 minutes (300 seconds)
-    
+
         # Second attempt
         try:
             return pd.read_sql_query(query, get_conn_engine(passcode))
@@ -222,7 +226,6 @@ def data_prep(sub):
     - specialty (str): Patient's provider department.
     - data (list[str]): vital signs, progress notes, diagnosis, etc..
     """
-    # sub = df.loc[df['Episode_key'] == vid]
     specialty = sub['specialty'].iloc[0]
     data = []  # a list of strings
     # Vitals
@@ -247,11 +250,11 @@ def data_prep(sub):
     # Diagnosis, chief complaint, symptoms, ... age and gender
     info = sub[['DiagnoseName', 'ICDDiagnoseCode', 'Age', 'Gender', 'ChiefComplaintNotes', 'SymptomNotes']].dropna(axis=1).iloc[0].to_dict()
     data.append(str(info))
-    return specialty, data
+    return specialty, set(data)
 
 
-def call_llm(sub, model="accounts/fireworks/models/qwen3-235b-a22b"):
-    json_model = ChatFireworks(model=model, temperature=0.0, max_tokens=5000, model_kwargs={"top_k": 1}).bind(
+def call_llm(sub, model="accounts/fireworks/models/qwen3-30b-a3b-thinking-2507"):
+    json_model = ChatFireworks(model=model, temperature=0.0, max_tokens=11000, model_kwargs={"top_k": 1, "stream": True}, request_timeout=(120, 200)).bind(
         response_format={"type": "json_object", "schema": schema}
     )
     specialty, data = data_prep(sub)
@@ -262,10 +265,16 @@ def call_llm(sub, model="accounts/fireworks/models/qwen3-235b-a22b"):
         SystemMessage(content=prompt),
     ]
     start = time.time()
-    response = json_model.invoke(chat_history).content
+    stream = json_model.stream(chat_history)
+    full_response = ""
+    for chunk in stream:
+        # Access the content from each chunk
+        if hasattr(chunk, 'content') and chunk.content:
+            full_response += chunk.content
     end = time.time()
     elapsed = end - start
-    return response, elapsed
+
+    return full_response, elapsed
 
 
 def extract_cn(html, form_type):
@@ -288,50 +297,67 @@ def extract_cn(html, form_type):
 
 
 def get_description(raw_response):
-    primary = json.loads(raw_response).get("Primary Diagnosis", {})
-    secondary = json.loads(raw_response).get("Secondary Diagnoses", {})
-    return primary, secondary
+    try:
+        primary = ast.literal_eval(raw_response).get("Primary Diagnosis", {})
+        prim_diagnosis = primary.get("Diagnosis", "")
+        prim_icd = primary.get("ICD10", "")
+        secondary = ast.literal_eval(raw_response).get("Secondary Diagnoses", {})
+        sec_diagnosis = secondary.get("Diagnosis", [])
+        sec_icd = secondary.get("ICD10", [])
+    except Exception:
+        logger.error(f"Failed to parse JSON response {traceback.format_exc()}, Raw response: {raw_response}")
+    return prim_diagnosis, prim_icd, sec_diagnosis, sec_icd
 
 
 def processing_thoughts(text):
-    pattern = r"<think>(.*?)</think>"
-    text_in_between = re.findall(pattern, str(text), re.DOTALL)
-    clean_text = re.sub(pattern, "", text, flags=re.DOTALL)
-    return clean_text.strip(), text_in_between[0].strip()
+    pattern = r"</think>(.*)"
+    match = re.search(pattern, text, flags=re.DOTALL)
+    return match.group(1).strip() if match else ""
 
 
 def transform_loop(df):
-    logger.info(
-        f"Resulting dataframe has {len(df)} rows with {df['Episode_key'].nunique()} unique visits"
-    )
+    len_before = len(df)
+    df = df.dropna(subset=['DiagnoseName'])
+    logger.info(f"Dropped {len_before - len(df)} rows with null diagnosis")
+    logger.info(f"Remaining dataframe has {len(df)} rows with {df['Episode_key'].nunique()} unique visits")
     cols = ['Primary_Diagnosis', 'Primary_ICD10', 'Secondary_Diagnoses', 'Secondary_ICD10']
     for col in cols:
         df[col] = None
     visits = df["Episode_key"].unique()
-    failed_visits = []
+    failed_visits: list[str] = []
     for v in tqdm(visits, desc="Processing"):
         sub = df.loc[df['Episode_key'] == v]
         try:
-            answer, elapsed = call_llm(sub)
+            try:
+               answer, elapsed = call_llm(sub)
+            except RateLimitError as e:
+                logger.error(e)
+                sleep_time = np.random.randint(60, 120)
+                logger.debug(f"Waiting {sleep_time} seconds before retrying due to rate limit")
+                time.sleep(sleep_time)
+                answer, elapsed = call_llm(sub)
             logger.debug(f"Response received in {elapsed:.2f} seconds for visit {v}")
-            
-            response, thought = processing_thoughts(answer)
+            response = processing_thoughts(answer)
             response = response.replace("\n", "")
-            
-            primary, secondary = get_description(response)
+            if response is None:
+                logger.debug(f"Processed response is none, before processing: {answer}")
+            elif response.strip() == "":
+                logger.debug(f"Processed response is empty string, before processing: {answer}")
+            prim_diagnosis, prim_icd, sec_diagnosis, sec_icd = get_description(response)
             idx = df[df["Episode_key"] == v].index
+            df.loc[idx, 'Primary_Diagnosis'] = prim_diagnosis
+            df.loc[idx, 'Primary_ICD10'] = prim_icd
+            df.loc[idx, 'Secondary_Diagnoses'] = ',  '.join(sec_diagnosis)
+            df.loc[idx, 'Secondary_ICD10'] = ',  '.join(sec_icd)
 
-            df.loc[idx, 'Primary_Diagnosis'] = primary.get("Diagnosis", "")
-            df.loc[idx, 'Primary_ICD10'] = primary.get("ICD10", "")
-            df.loc[idx, 'Secondary_Diagnoses'] = ',  '.join(secondary.get("Diagnosis", []))
-            df.loc[idx, 'Secondary_ICD10'] = ',  '.join(secondary.get("ICD10", []))
-
-        except Exception as e:
-            logger.error(f"Error processing Episode {v}: {e}")
+        except Exception:
+            logger.error(f"Error processing Episode {v}: {traceback.format_exc()}")
             failed_visits.append(v)
 
-    return df[['Episode_key'] + cols].drop_duplicates(keep='last')
+    logger.info(f"Failed Visits: {failed_visits}")
+    result = df[['Episode_key'] + cols].drop_duplicates(keep='last')
+    return result[~result['Episode_key'].isin(failed_visits)]  # df[df['Episode_key'].isin(failed_visits)]
 
 
-def generate_ep_key(VisitID):
-    return '11_' +  VisitID
+def generate_ep_key(visit_id):
+    return '11_' + visit_id

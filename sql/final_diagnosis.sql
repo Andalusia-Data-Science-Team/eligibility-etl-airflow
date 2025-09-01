@@ -34,5 +34,6 @@ ON fb.PatientEpisodeType_Key=pt.PatientEpisodeType_Key
 LEFT JOIN dax.DimStaff ds 
 ON fb.Doctor_Key=ds.Staff_Key
 WHERE FB.Organization_Key = 1 
-AND FB.Service_Date >= DATEADD(DAY, -1, CURRENT_TIMESTAMP)
+--AND FB.Service_Date >= DATEADD(HOUR, -12, CURRENT_TIMESTAMP)
+AND CAST(FB.Service_Date AS DATE) = CAST(GETDATE() - 1 AS DATE)
 AND pt.PatientEpisodeType_Desc = 'Outpatient'
