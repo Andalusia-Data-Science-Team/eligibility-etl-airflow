@@ -6,12 +6,13 @@ services:
       MYSQL_ROOT_PASSWORD: root123
       MYSQL_DATABASE: airflow_db
     ports:
-      - "3307:3306"
+      - "3308:3309"
     volumes:
       - mysql-db-volume:/var/lib/mysql
 
   airflow-webserver:
     build: .
+    image: eligibility-etl-airflow-airflow-webserver:FinalDiagnosisDAG
     restart: always
     depends_on:
       - mysql
@@ -29,6 +30,7 @@ services:
 
   airflow-scheduler:
     build: .
+    image: eligibility-etl-airflow-airflow-scheduler:FinalDiagnosisDAG
     restart: always
     depends_on:
       - airflow-webserver

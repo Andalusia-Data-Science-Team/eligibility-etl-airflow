@@ -44,3 +44,10 @@ if st.button('Get Analysis'):
     # Descriptive statistics
     st.subheader("Descriptive Statistics")
     st.write(data[['Services', 'Visits', 'Time', 'Rejected']].describe())
+    data['Date'] = pd.to_datetime(data['Date'])
+    daily_services = data.groupby(data['Date'].dt.date)['Services'].sum()
+    daily_visits = data.groupby(data['Date'].dt.date)['Visits'].sum()
+    avg_serv_per_day = round(daily_services.mean())
+    avg_visits_per_day = round(daily_visits.mean())
+    st.write(f"Average Visists per day: {avg_visits_per_day}")
+    st.write(f"Average Services per day: {avg_serv_per_day}")

@@ -194,10 +194,10 @@ default_args = {
 
 
 @dag(
-    dag_id="eligibility_job_",
+    dag_id="eligibility_job_midnight",
     default_args=default_args,
     start_date=pendulum.now(CAIRO_TZ).subtract(days=1),
-    schedule_interval='0 4,8,12,16,20 * * *',  # 11:59 PM, 4 AM, 8 AM, 12 PM, 4 PM, 8 PM
+    schedule_interval='58 23 * * *',  # 11:58 PM
     catchup=False,
     tags=["eligibility", "dotcare", "parallel"],
     max_active_runs=1,  # Prevent overlapping runs
