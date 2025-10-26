@@ -130,9 +130,9 @@ def read_data():
         pandas DataFrame with query results
     """
     try:
-        df = pd.read_sql_query(query, get_conn_engine(read_passcode))
-        if df.empty:
-            df = pd.read_sql_query(query, get_conn_engine(live_passcode))
+        df = pd.read_sql_query(query, get_conn_engine(live_passcode))
+        # if df.empty:
+        #     df = pd.read_sql_query(query, get_conn_engine(live_passcode))
         return df
     except Exception as e:
         logger.debug(f"First attempt failed with error: {str(e)}")
@@ -141,15 +141,16 @@ def read_data():
     
         # Second attempt
         try:
-            return pd.read_sql_query(query, get_conn_engine(read_passcode))
+            return pd.read_sql_query(query, get_conn_engine(live_passcode))
         except Exception as e:
-            logger.debug(f"Second attempt failed with error: {str(e)}")
-            logger.debug("Reading from live data...")
-            try:
-                return pd.read_sql_query(query, get_conn_engine(live_passcode))
-            except Exception as e:
-                logger.debug(f"Reading from live data attempt failed with error: {str(e)}")
-                pass
+            logger.debug(f"Reading from live data attempt failed with error: {str(e)}")
+            # logger.debug(f"Second attempt failed with error: {str(e)}")
+            # logger.debug("Reading from live data...")
+            # try:
+            #     return pd.read_sql_query(query, get_conn_engine(live_passcode))
+            # except Exception as e:
+            #     logger.debug(f"Reading from live data attempt failed with error: {str(e)}")
+            pass
 
 
 def update_table(passcode: Dict[str, str], table_name: str, df: pd.DataFrame, retries=28, delay=500):
@@ -197,7 +198,7 @@ def update_table(passcode: Dict[str, str], table_name: str, df: pd.DataFrame, re
         raise
 
 
-def dev_response(info, services, model="accounts/fireworks/models/deepseek-v3"):
+def dev_response(info, services, model="accounts/fireworks/models/deepseek-v3p1"):
     """
     Makes predictions on all services in a visit and returns only the rejected ones and their rejection reason.
 

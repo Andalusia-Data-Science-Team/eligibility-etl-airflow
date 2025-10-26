@@ -36,7 +36,7 @@ Talk as if you're addressing the insurance company. Do not talk about it in thir
 Do not add a conclusion at the end. Keep it in a medium length like the provided example.
 
 You are supposed to write your justification FOR EACH service to look like the following format:
-The request for Serum Creatinine is clinically justified in this case. The patient presented with joint disorders (M25) and generalized fatigue and
+The patient presented with joint disorders (M25) and generalized fatigue and
 malaise (R53). These symptoms may indicate possible underlying renal impairment, which can be associated with systemic inflammatory conditions,
 autoimmune disorders, or side effects from medications used to manage joint symptoms (e.g., NSAIDs or DMARDs).
 
@@ -75,7 +75,7 @@ schema = {
     "additionalProperties": False,
 }
 
-def generate_justification(visit_data, len_rejected, model="accounts/fireworks/models/deepseek-v3"):
+def generate_justification(visit_data, len_rejected, model="accounts/fireworks/models/deepseek-v3p1"):
     json_model = ChatFireworks(
         model=model, temperature=0.2, max_tokens=5000, model_kwargs={"top_k": 1}, request_timeout=(120, 120)).bind(
             response_format={"type": "json_object", "schema": schema}

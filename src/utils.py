@@ -267,7 +267,6 @@ def Iqama_table(df):
     insurance_df.drop(columns=existing_columns, inplace=True)    
     insurance_df = name_conflict(insurance_df)
     insurance_df.dropna(inplace=True)
-
     return insurance_df
 
 

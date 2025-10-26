@@ -60,7 +60,7 @@ def read_data(query, passcode, logger):
 
         # Second attempt
         try:
-            return pd.read_sql_query(query, get_conn_engine(passcode))
+            return pd.read_sql_query(query, get_conn_engine(passcode, logger))
         except Exception as e:
             logger.debug(f"Second attempt failed with error: {str(e)}")
 
