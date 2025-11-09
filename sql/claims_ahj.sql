@@ -57,7 +57,7 @@ SELECT DISTINCT
     -- Service Details
     VS.claimdate AS Creation_Date,
     VS.UpdatedDate AS Updated_Date,
-    VS.ServiceEnName AS [Description],
+    VS.ServiceEnName AS [Service_Name],
     VS.ID AS VisitServiceID,
     VS.Quantity,
 

@@ -241,33 +241,6 @@ with tab_bi:
 
     df_bi = st.session_state.get("_bi_df")
 
-    if isinstance(df_bi, pd.DataFrame) and not df_bi.empty:
-        st.markdown("---")
-        st.subheader("Compose & Export from BI rows")
-
-        chosen_vid = st.text_input("Enter any VisitID from the BI table", key="bi_chosen_vid")
-        if st.button("Show justification for this VisitID", key="bi_show_export_btn"):
-            if not chosen_vid.strip():
-                st.error("Please enter a Visit ID.")
-            else:
-                sub = df_bi[df_bi["VisitID"].astype(str) == chosen_vid.strip()]
-                if sub.empty:
-                    info_box("That VisitID isn’t present in the loaded BI table.")
-                else:
-                    st.success(f"Loaded {len(sub)} BI row(s) for Visit {chosen_vid.strip()}.")
-                    # Show the existing BI justification
-                    show_cols = [c for c in ["VisitID","VisitServiceID","Service_Name","Reason","Justification"] if c in sub.columns]
-                    st.dataframe(sub[show_cols], use_container_width=True)
-
-                    # Export exactly what we have from BI (no LLM)
-                    c1, c2 = st.columns(1)
-                    with c1:
-                         st.download_button(
-                            "⬇ Download PDF",
-                            data=render_pdf(sub, chosen_vid.strip()),
-                            file_name=f"resubmission_{chosen_vid.strip()}.pdf",
-                            mime="application/pdf",
-                        )
                     
 
 # === TAB 2: Manual single visit (REPLICA + LLM) ===
@@ -303,16 +276,7 @@ with tab_manual:
                 show_cols = [c for c in ["VisitID", "VisitServiceID", "Service_Name", "Reason", "Justification"] if c in sub.columns]
                 st.dataframe(sub[show_cols], use_container_width=True)
 
-                # Export exactly what we have from BI (no LLM)
-                c1, c2 = st.columns(1)
-                with c1:
-                    st.download_button(
-                        "⬇ Download PDF",
-                        data=render_pdf(sub, vid),
-                        file_name=f"resubmission_{vid}.pdf",
-                        mime="application/pdf",
-                    )
-                
+             
             else:
                 # 2) Not in BI → fall back to REPLICA + LLM on the single visit
                 try:

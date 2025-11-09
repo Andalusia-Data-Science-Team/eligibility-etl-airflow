@@ -312,7 +312,7 @@ def request_loop(df):
                 v_services = (
                     df.loc[
                         df["VisitID"] == v,
-                        ["VisitServiceID", "Description", "Quantity"],
+                        ["VisitServiceID", "Service_Name", "Quantity"],
                     ].set_index("VisitServiceID")
                 )
 
@@ -418,12 +418,13 @@ def write_preds(responses, df):
         [
             "VisitID",
             "VisitServiceID",
+            "Service_Name",
             "Medical_Prediction",
             reason_col,
             "Diagnose",
             "Chief_Complaint",
             "ProblemNote",
-            "Symptoms",
+            "Symptoms"   
         ]
     ]
 

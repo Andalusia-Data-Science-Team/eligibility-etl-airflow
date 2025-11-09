@@ -271,12 +271,11 @@ with tab_history:
 # === PREDICT ONE ===
 with tab_predict:
     st.caption("Generate a new prediction for a Visit ID. Falls back to local snapshot if Replica is unavailable.")
-    vcol, optcol1 = st.columns([2, 1])
+
+    # Input only (no 'show source' checkbox)
+    vcol = st.columns([3])[0]
     with vcol:
         visit_id = st.text_input("Visit ID (required)", placeholder="Enter a Visit ID to score")
-    with optcol1:
-        show_source = st.checkbox("Show fetched source sample", value=False)
-    st.markdown('</div>', unsafe_allow_html=True)
 
     if st.button("Run predictions now", key="btn_predict"):
         if not visit_id.strip():
@@ -284,12 +283,12 @@ with tab_predict:
         else:
             params = {"vid": visit_id.strip()}
             try:
-                with st.spinner("Loading visit data from LIVE..."):
+                with st.spinner("Loading visit data..."):
                     src = read_sql("REPLICA", """
 SELECT DISTINCT
     VS.VisitID, VC.EnName AS Visit_Type, V.MainSpecialityEnName AS PROVIDER_DEPARTMENT,
     G.EnName AS PATIENT_GENDER, DATEDIFF(YEAR, PA.DateOfBirth, GETDATE()) AS AGE,
-    VS.ClaimDate AS Creation_Date, VS.UpdatedDate AS Updated_Date, VS.ServiceEnName AS [Description],
+    VS.ClaimDate AS Creation_Date, VS.UpdatedDate AS Updated_Date, VS.ServiceEnName AS [Service_Name],
     VS.ID AS VisitServiceID, VS.Quantity,
     PCD.ICDDiagnoseNames AS DIAGNOS_NAME, PCD.ICDDiagnoseCodes AS ICD10, PCD.ProblemNote,
     PCD.ICDDiagnoseNames AS Diagnose,
@@ -319,20 +318,23 @@ LEFT JOIN (
 WHERE V.VisitStatusID != 3 AND VC.EnName != 'Ambulatory' AND VS.IsDeleted = 0
   AND VS.CompanyShare > 0 AND VFI.ContractTypeID = 1 AND VS.VisitID = :vid
 """, params)
+
                 if src.empty:
                     info_box(f"No rows found on Replica for VisitID {visit_id}.")
                 else:
-                    if show_source:
-                        st.write(f"Fetched {len(src)} service rows for VisitID {visit_id}.")
-                        st.dataframe(src.head(50), use_container_width=True)
                     with st.spinner(f"Scoring services for VisitID {visit_id}..."):
                         history_df = make_preds(src)
+
                     if history_df is None or history_df.empty:
-                        info_box("LLM produced no rows.")
+                        info_box("produced no rows.")
                     else:
                         rejected = (history_df["Medical_Prediction"] == "Rejected").sum()
                         total = len(history_df)
-                        kpi_row([("Scored services", total), ("Rejected", rejected), ("Approved", total - rejected)])
+                        kpi_row([
+                            ("Scored services", total),
+                            ("Rejected", rejected),
+                            ("Approved", total - rejected),
+                        ])
                         st.dataframe(history_df, use_container_width=True)
             except Exception:
                 network_issue_box("live")
@@ -396,7 +398,7 @@ with tab_live:
 SELECT DISTINCT
     VS.VisitID, VC.EnName AS Visit_Type, V.MainSpecialityEnName AS PROVIDER_DEPARTMENT,
     G.EnName AS PATIENT_GENDER, DATEDIFF(YEAR, PA.DateOfBirth, GETDATE()) AS AGE,
-    VS.ClaimDate AS Creation_Date, VS.UpdatedDate AS Updated_Date, VS.ServiceEnName AS [Description],
+    VS.ClaimDate AS Creation_Date, VS.UpdatedDate AS Updated_Date, VS.ServiceEnName AS [Service_Name],
     VS.ID AS VisitServiceID, VS.Quantity,
     PCD.ICDDiagnoseNames AS DIAGNOS_NAME, PCD.ICDDiagnoseCodes AS ICD10, PCD.ProblemNote,
     PCD.ICDDiagnoseNames AS Diagnose,
@@ -434,7 +436,7 @@ WHERE V.VisitStatusID != 3 AND VC.EnName != 'Ambulatory' AND VS.IsDeleted = 0
                         history_df = make_preds(src)
 
                     if history_df is None or history_df.empty:
-                        info_box("LLM produced no rows.")
+                        info_box("produced no rows.")
                     else:
                         rejected = (history_df["Medical_Prediction"] == "Rejected").sum()
                         total = len(history_df)
