@@ -26,8 +26,7 @@ try:
     with open("passcode.json", "r") as file:
         db_configs = json.load(file)
     db_configs = db_configs["DB_NAMES"]
-    live_passcode = db_configs["LIVE"]
-    read_passcode = db_configs["AHJ_DOT-CARE"] 
+    live_passcode = db_configs["Replica"]
 
     sql_path = Path("sql") / "claims_ahj.sql"
     with open(sql_path, "r") as file:

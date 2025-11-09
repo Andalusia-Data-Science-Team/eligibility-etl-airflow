@@ -27,8 +27,7 @@ with open("passcode.json", "r") as file:
     db_configs = json.load(file)
 db_configs = db_configs["DB_NAMES"]
 write_passcode = db_configs["BI"]
-live_passcode = db_configs["LIVE"]
-replica_passcode = db_configs["AHJ_DOT-CARE"]
+live_passcode = db_configs["Replica"]
 
 with open(Path("sql") / "resubmission.sql", "r") as file:
     query = file.read()

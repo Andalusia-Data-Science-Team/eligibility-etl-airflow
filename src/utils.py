@@ -569,7 +569,7 @@ def get_conn_engine(source):
         conn_str = f"oracle+cx_oracle://{passcodes['user']}:{password}@{passcodes['host']}:{passcodes['port']}/{passcodes['service']}"
         return create_engine(conn_str)
     
-    elif source == "LIVE":
+    elif source == "Replica":
         server, db, uid, pwd, driver = (
             passcodes['Server'],
             passcodes['Database'],
