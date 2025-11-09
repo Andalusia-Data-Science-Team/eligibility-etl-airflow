@@ -39,7 +39,7 @@ SELECT DISTINCT
     I.ItemId AS Service_id,
     I.NameEn AS Service_Name,
     I.ResponseState AS Status,
-    I.ResponseProcessNote AS Note,
+    I.ResponseProcessNote AS Note,XX
     I.ResponseReason AS Reason,
     I.ResponseReasonCode,
 	I.ID AS VisitServiceID,

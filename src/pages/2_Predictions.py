@@ -288,8 +288,7 @@ with tab_predict:
 SELECT DISTINCT
     VS.VisitID, VC.EnName AS Visit_Type, V.MainSpecialityEnName AS PROVIDER_DEPARTMENT,
     G.EnName AS PATIENT_GENDER, DATEDIFF(YEAR, PA.DateOfBirth, GETDATE()) AS AGE,
-    VS.ClaimDate AS Creation_Date, VS.UpdatedDate AS Updated_Date, VS.ServiceEnName AS [Service_Name],
-    VS.ID AS VisitServiceID, VS.Quantity,
+    VS.ClaimDate AS Creation_Date, VS.UpdatedDate AS Updated_Date, VS.ServiceEnName AS [Service_Name], VS.Quantity,
     PCD.ICDDiagnoseNames AS DIAGNOS_NAME, PCD.ICDDiagnoseCodes AS ICD10, PCD.ProblemNote,
     PCD.ICDDiagnoseNames AS Diagnose,
     CC.ChiefComplaintNotes AS CHIEF_COMPLAINT, CC.ChiefComplaintNotes AS Chief_Complaint,
@@ -398,8 +397,7 @@ with tab_live:
 SELECT DISTINCT
     VS.VisitID, VC.EnName AS Visit_Type, V.MainSpecialityEnName AS PROVIDER_DEPARTMENT,
     G.EnName AS PATIENT_GENDER, DATEDIFF(YEAR, PA.DateOfBirth, GETDATE()) AS AGE,
-    VS.ClaimDate AS Creation_Date, VS.UpdatedDate AS Updated_Date, VS.ServiceEnName AS [Service_Name],
-    VS.ID AS VisitServiceID, VS.Quantity,
+    VS.ClaimDate AS Creation_Date, VS.UpdatedDate AS Updated_Date, VS.ServiceEnName AS [Service_Name], VS.Quantity,
     PCD.ICDDiagnoseNames AS DIAGNOS_NAME, PCD.ICDDiagnoseCodes AS ICD10, PCD.ProblemNote,
     PCD.ICDDiagnoseNames AS Diagnose,
     CC.ChiefComplaintNotes AS CHIEF_COMPLAINT, CC.ChiefComplaintNotes AS Chief_Complaint,
