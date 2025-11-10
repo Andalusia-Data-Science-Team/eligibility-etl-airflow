@@ -72,7 +72,7 @@ ON CGWM.ContractorID=ISNULL(BC.ParentID,BC.ID ) AND CGWM.GateWayID=3
 WHERE V.VisitStatusID != 3 and  V.FinancialStatusID=2 
 AND 
 --V.CreatedDate >= DATEADD(HOUR, -2, GETDATE())
-
-    CONVERT(DATE, V.CreatedDate) >= DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()), 0) -- from first of month
-    AND CONVERT(DATE, V.CreatedDate) = CONVERT(DATE, GETDATE()) -- for today only
-    AND CONVERT(DATETIME, V.CreatedDate) >= DATEADD(HOUR, -4, GETDATE()) -- last 4 hours
+V.CreatedDate >= '2025-11-01'
+    --CONVERT(DATE, V.CreatedDate) >= DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()), 0) -- from first of month
+    --AND CONVERT(DATE, V.CreatedDate) = CONVERT(DATE, GETDATE()) -- for today only
+    --AND CONVERT(DATETIME, V.CreatedDate) >= DATEADD(HOUR, -4, GETDATE()) -- last 4 hours

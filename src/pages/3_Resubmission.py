@@ -287,9 +287,8 @@ with tab_bi:
 
                 # Optional: put Reason right after Service_Name
                 desired_order = [
-                    "VisitID", "VisitServiceID", "Service_Name", "Reason",
-                    "Justification", "ContractorEnName", "VisitStartDate",
-                    "VisitClassificationEnName",
+                    "VisitID", "VisitServiceID", "Service_Name", "Reason","ContractorEnName", "VisitStartDate",
+                    "VisitClassificationEnName","Justification"
                 ]
                 # keep any extras at the end
                 cols = [c for c in desired_order if c in df_bi.columns] + \
@@ -558,3 +557,9 @@ with tab_live:
 
                 except Exception as e:
                     st.error(f"Run failed: {e}")
+
+# ---------- Footer ----------
+st.markdown(
+    f'<p style="text-align:center;color:#94a3b8;margin-top:2rem">©️ {datetime.now().year} Claims Copilot</p>',
+    unsafe_allow_html=True,
+)

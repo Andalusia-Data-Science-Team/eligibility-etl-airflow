@@ -75,10 +75,8 @@ def failure_callback(context):
         # List of recipients
         recipients = [
             'Mohamed.Reda@Andalusiagroup.net',
-            'Omar.Wafy@Andalusiagroup.net',
-            'Asmaa.Awad@Andalusiagroup.net',
             'Andrew.Alfy@Andalusiagroup.net',
-            'Shehata.Amr@Andalusiagroup.net',
+            'Nadine.ElSokily@Andalusiagroup.net',
         ]
 
         # Send email using SMTP
@@ -161,10 +159,8 @@ def success_callback(context):
         
         send_email(
             to=['Mohamed.Reda@Andalusiagroup.net',
-                'Omar.Wafy@Andalusiagroup.net',
-                'Asmaa.Awad@Andalusiagroup.net',
                 'Andrew.Alfy@Andalusiagroup.net',
-                'Shehata.Amr@Andalusiagroup.net',],
+                'Nadine.ElSokily@Andalusiagroup.net',],
             subject=subject,
             html_content=html_body,
         )
@@ -184,10 +180,8 @@ default_args = {
     'email_on_retry': False,
     'email_on_success': False,  # Set to True if you want success emails for individual tasks
     'email': ['Mohamed.Reda@Andalusiagroup.net',
-              'Omar.Wafy@Andalusiagroup.net',
-              'Asmaa.Awad@Andalusiagroup.net',
               'Andrew.Alfy@Andalusiagroup.net',
-              'Shehata.Amr@Andalusiagroup.net',],  # Default email list
+              'Nadine.ElSokily@Andalusiagroup.net',],  # Default email list
     'on_failure_callback': failure_callback,
     # 'on_success_callback': success_callback,  # Uncomment if you want success emails
 }
@@ -200,16 +194,14 @@ default_args = {
     schedule_interval='0 4,8,12,16,20 * * *',  # 11:59 PM, 4 AM, 8 AM, 12 PM, 4 PM, 8 PM
     catchup=False,
     tags=["eligibility", "dotcare", "parallel"],
-    max_active_runs=1,  # Prevent overlapping runs
+    max_active_runs=3,  # Prevent overlapping runs
     description="ETL pipeline for eligibility data from DOT-CARE with parallel processing",
     # DAG-level email configuration
     params={
         'email_on_dag_failure': True,
         'notification_emails': ['Mohamed.Reda@Andalusiagroup.net',
-                                'Omar.Wafy@Andalusiagroup.net',
-                                'Asmaa.Awad@Andalusiagroup.net',
                                 'Andrew.Alfy@Andalusiagroup.net',
-                                'Shehata.Amr@Andalusiagroup.net',]
+                                'Nadine.ElSokily@Andalusiagroup.net',]
     }
 )
 def eligibility_etl_pipeline():
@@ -218,15 +210,13 @@ def eligibility_etl_pipeline():
         email_on_failure=True,
         email_on_retry=False,
         email=['Mohamed.Reda@Andalusiagroup.net',
-               'Omar.Wafy@Andalusiagroup.net',
-               'Asmaa.Awad@Andalusiagroup.net',
                'Andrew.Alfy@Andalusiagroup.net',
-               'Shehata.Amr@Andalusiagroup.net',]
+               'Nadine.ElSokily@Andalusiagroup.net',]
     )
     def extract_data(**context):
         """Extract data with overlap handling to prevent data gaps"""
         try:
-            source = "LIVE"
+            source = "Replica"
             query_path = Path(__file__).resolve().parent.parent / "sql" / "test.sql"
             query = query_path.read_text()
             current_time = datetime.now()
@@ -262,7 +252,7 @@ def eligibility_etl_pipeline():
     @task(
         email_on_failure=True,
         email_on_retry=False,
-        email=['Shehata.Amr@Andalusiagroup.net']
+        email=['Nadine.ElSokily@Andalusiagroup.net']
     )
     def transform_iqama(extraction_info):
         """Transform data for Iqama table"""
@@ -299,7 +289,7 @@ def eligibility_etl_pipeline():
     @task(
         email_on_failure=True,
         email_on_retry=False,
-        email=['Shehata.Amr@Andalusiagroup.net']
+        email=['Nadine.ElSokily@Andalusiagroup.net']
     )
     def transform_eligibility(extraction_info):
         """Transform data for Eligibility table"""
@@ -356,7 +346,7 @@ def eligibility_etl_pipeline():
     @task(
         email_on_failure=True,
         email_on_retry=False,
-        email=['Shehata.Amr@Andalusiagroup.net']
+        email=['Nadine.ElSokily@Andalusiagroup.net']
     )
     def load_data(iqama_info, eligibility_info):
         """Load transformed data to destinations"""

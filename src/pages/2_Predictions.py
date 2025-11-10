@@ -287,7 +287,7 @@ with tab_predict:
                     src = read_sql("REPLICA", """
 SELECT DISTINCT
     VS.VisitID, VC.EnName AS Visit_Type, V.MainSpecialityEnName AS PROVIDER_DEPARTMENT,
-    G.EnName AS PATIENT_GENDER, DATEDIFF(YEAR, PA.DateOfBirth, GETDATE()) AS AGE,
+    G.EnName AS PATIENT_GENDER, DATEDIFF(YEAR, PA.DateOfBirth, GETDATE()) AS AGE,VS.id as VisitServiceID,
     VS.ClaimDate AS Creation_Date, VS.UpdatedDate AS Updated_Date, VS.ServiceEnName AS [Service_Name], VS.Quantity,
     PCD.ICDDiagnoseNames AS DIAGNOS_NAME, PCD.ICDDiagnoseCodes AS ICD10, PCD.ProblemNote,
     PCD.ICDDiagnoseNames AS Diagnose,
@@ -396,7 +396,7 @@ with tab_live:
                     src = read_sql("REPLICA", """
 SELECT DISTINCT
     VS.VisitID, VC.EnName AS Visit_Type, V.MainSpecialityEnName AS PROVIDER_DEPARTMENT,
-    G.EnName AS PATIENT_GENDER, DATEDIFF(YEAR, PA.DateOfBirth, GETDATE()) AS AGE,
+    G.EnName AS PATIENT_GENDER, DATEDIFF(YEAR, PA.DateOfBirth, GETDATE()) AS AGE,VS.id as VisitServiceID,
     VS.ClaimDate AS Creation_Date, VS.UpdatedDate AS Updated_Date, VS.ServiceEnName AS [Service_Name], VS.Quantity,
     PCD.ICDDiagnoseNames AS DIAGNOS_NAME, PCD.ICDDiagnoseCodes AS ICD10, PCD.ProblemNote,
     PCD.ICDDiagnoseNames AS Diagnose,
