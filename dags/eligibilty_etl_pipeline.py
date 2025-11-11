@@ -104,10 +104,8 @@ def failure_callback(context):
             try:
                 send_email(
                     to=['Mohamed.Reda@Andalusiagroup.net',
-                        'Omar.Wafy@Andalusiagroup.net',
-                        'Asmaa.Awad@Andalusiagroup.net',
                         'Andrew.Alfy@Andalusiagroup.net',
-                        'Shehata.Amr@Andalusiagroup.net',],
+                        'Nadine.ElSokily@Andalusiagroup.net',],
                     subject=subject,
                     html_content=html_body,
                 )

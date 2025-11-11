@@ -358,11 +358,6 @@ def make_preds(df):
     logger.info(
         f"Query returned {len(df)} rows with {df['VisitID'].nunique()} unique visits"
     )
-    global performance
-    performance = {}
-    performance['Date'] = datetime.now().strftime('%m/%d/%Y %H:%M')
-    performance['Services'] = len(df)
-
     responses, total_time, failed_visits = request_loop(df)
 
     try:
@@ -376,10 +371,8 @@ def make_preds(df):
     except Exception as e:
         logger.debug(f"Error running failed visits: {e}")
 
-    performance['Visits'] = df["VisitID"].nunique()
     logger.debug(f"Failed Visits: {failed_visits}")
     logger.info(f"Inference time: {sum(total_time):.2f} seconds")
-    performance['Time'] = sum(total_time)
 
     # Drop failed before merging predictions and filling nulls to avoid them getting marked as Approved
     df.drop(df[df["VisitID"].isin(failed_visits)].index, inplace=True)
@@ -405,7 +398,6 @@ def write_preds(responses, df):
         logger.debug(
             f"Created prediction dataframe with {len(pred_df)} rejected services"
         )
-        performance['Rejected'] = len(pred_df)
         df = df.merge(pred_df, on="VisitServiceID", how="left")
     else:
         logger.info("No rejected services found, all will be marked as Approved")
@@ -429,8 +421,5 @@ def write_preds(responses, df):
     ]
 
     logger.info(f"Final prediction dataframe has {len(pred_df)} rows")
-    
-    column_order = ['Services', 'Visits', 'Time', 'Rejected', 'Date']
-    new_df = pd.DataFrame(performance, columns=column_order, index=[0])
-    new_df.to_csv('etl_analysis.csv', mode='a', header=False, index=False)
+
     return history_df

@@ -9,7 +9,6 @@ import json
 import requests
 import ast
 from tqdm import tqdm
-from sqlalchemy import create_engine
 import platform
 import cx_Oracle
 from pathlib import Path
@@ -232,16 +231,14 @@ def Iqama_table(df):
         try:
             iqama = int(iqama)
             eligibility_dict[int(iqama)] = Beneficiary_api(int(iqama))
-            # Random delay between 30 and 50 milliseconds
-            delay_ms = random.uniform(10, 20)  # float in milliseconds
-            time.sleep(delay_ms / 1000)    
+            # Random delay between 10 and 20 milliseconds
+            delay_ms = random.uniform(10, 20)
+            time.sleep(delay_ms / 1000)
         except ValueError:
             iqama = None 
-        
-        
     
     # Convert to DataFrame
-    _df = pd.DataFrame(eligibility_dict.items(), columns=['Iqama_no', 'Eligibility'])  
+    _df = pd.DataFrame(eligibility_dict.items(), columns=['Iqama_no', 'Eligibility'])
       
     logger.info("Extracting API status...")
     tqdm.pandas(desc="Extracting API Status")
@@ -253,20 +250,22 @@ def Iqama_table(df):
     logger.info(f"length of API-Call Successed: {len_success}")
     logger.info(f"length of API-Call Failed: {len_fail}")
     
-    # Apply the function to extract insurance data
+    # Extract insurance data
     insurance_data = _df['Eligibility'].apply(extract_insurance_data)
-
-    # Convert the extracted JSON data into a DataFrame
-    insurance_df = insurance_data.apply(pd.Series)  # Expands JSON keys as columns
-
-    # Merge the new columns into the original DataFrame
+    insurance_df = insurance_data.apply(pd.Series)
     insurance_df = pd.concat([_df, insurance_df], axis=1)
-                        
+    
     columns_to_drop = ['UploadDate', 'NationalityCode', 'Eligibility', 'api_status']
     existing_columns = [col for col in columns_to_drop if col in insurance_df.columns]
     insurance_df.drop(columns=existing_columns, inplace=True)    
     insurance_df = name_conflict(insurance_df)
     insurance_df.dropna(inplace=True)
+
+    df['iqama_no'] = pd.to_numeric(df['iqama_no'], errors='coerce').astype('Int64')
+    insurance_df['Iqama_no'] = pd.to_numeric(insurance_df['Iqama_no'], errors='coerce').astype('Int64')
+    insurance_df = insurance_df.merge(df[['iqama_no', 'visit_id']], left_on='Iqama_no', right_on='iqama_no', how='left')
+    insurance_df.drop(columns=['iqama_no'], inplace=True)
+
     return insurance_df
 
 
