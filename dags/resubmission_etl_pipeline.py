@@ -26,9 +26,8 @@ logger.setLevel(logging.DEBUG)
 with open("passcode.json", "r") as file:
     db_configs = json.load(file)
 db_configs = db_configs["DB_NAMES"]
-write_passcode = db_configs["BI"] 
-live_passcode = db_configs["LIVE"]
-replica_passcode = db_configs["AHJ_DOT-CARE"]
+write_passcode = db_configs["BI"]
+live_passcode = db_configs["Replica"]
 
 with open(Path("sql") / "resubmission.sql", "r") as file:
     query = file.read()
@@ -222,15 +221,22 @@ def resubmission_etl_pipeline():
                'Nadine.ElSokily@Andalusiagroup.net',]
     )
     def extract():
-        df = read_data(query, replica_passcode, logger)
-        if df.empty:
-            logger.debug("An issue was detected with the replica, reading from live database..")
-            try:    
-                df = read_data(query, live_passcode, logger)    
-                if df.empty:
-                    raise AirflowSkipException("No data was found, quitting resubmission job")
-            except Exception as e:
-                logger.debug(e)
+        try:
+            df = read_data(query, live_passcode, logger)
+            if df.empty:
+                raise AirflowSkipException("No data was found in live, quitting resubmission job")
+            # if df.empty:
+            #     logger.debug("No data was found in replica")
+            #     try:
+            #         df = read_data(query, live_passcode, logger)    
+            #         if df.empty:
+            #             raise AirflowSkipException("No data was found in live, quitting resubmission job")
+            #     except Exception as e:
+            #         logger.debug(e)
+        except Exception as e:
+            logger.debug(e)
+            # df = read_data(query, live_passcode, logger)
+
         df = df.drop_duplicates(keep='last')
         df = df.loc[df['VisitClassificationEnName']!='Ambulatory']
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')

@@ -193,3 +193,4 @@ passcode.json
 passcodes.json
 webserver_config.py
 airflow.cfg
+.csv

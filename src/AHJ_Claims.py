@@ -26,8 +26,7 @@ try:
     with open("passcode.json", "r") as file:
         db_configs = json.load(file)
     db_configs = db_configs["DB_NAMES"]
-    live_passcode = db_configs["LIVE"]
-    read_passcode = db_configs["AHJ_DOT-CARE"] 
+    live_passcode = db_configs["Replica"]
 
     sql_path = Path("sql") / "claims_ahj.sql"
     with open(sql_path, "r") as file:
@@ -130,9 +129,9 @@ def read_data():
         pandas DataFrame with query results
     """
     try:
-        df = pd.read_sql_query(query, get_conn_engine(read_passcode))
-        if df.empty:
-            df = pd.read_sql_query(query, get_conn_engine(live_passcode))
+        df = pd.read_sql_query(query, get_conn_engine(live_passcode))
+        # if df.empty:
+        #     df = pd.read_sql_query(query, get_conn_engine(live_passcode))
         return df
     except Exception as e:
         logger.debug(f"First attempt failed with error: {str(e)}")
@@ -141,15 +140,16 @@ def read_data():
     
         # Second attempt
         try:
-            return pd.read_sql_query(query, get_conn_engine(read_passcode))
+            return pd.read_sql_query(query, get_conn_engine(live_passcode))
         except Exception as e:
-            logger.debug(f"Second attempt failed with error: {str(e)}")
-            logger.debug("Reading from live data...")
-            try:
-                return pd.read_sql_query(query, get_conn_engine(live_passcode))
-            except Exception as e:
-                logger.debug(f"Reading from live data attempt failed with error: {str(e)}")
-                pass
+            logger.debug(f"Reading from live data attempt failed with error: {str(e)}")
+            # logger.debug(f"Second attempt failed with error: {str(e)}")
+            # logger.debug("Reading from live data...")
+            # try:
+            #     return pd.read_sql_query(query, get_conn_engine(live_passcode))
+            # except Exception as e:
+            #     logger.debug(f"Reading from live data attempt failed with error: {str(e)}")
+            pass
 
 
 def update_table(passcode: Dict[str, str], table_name: str, df: pd.DataFrame, retries=28, delay=500):
@@ -197,7 +197,7 @@ def update_table(passcode: Dict[str, str], table_name: str, df: pd.DataFrame, re
         raise
 
 
-def dev_response(info, services, model="accounts/fireworks/models/deepseek-v3"):
+def dev_response(info, services, model="accounts/fireworks/models/deepseek-v3p1"):
     """
     Makes predictions on all services in a visit and returns only the rejected ones and their rejection reason.
 
@@ -312,7 +312,7 @@ def request_loop(df):
                 v_services = (
                     df.loc[
                         df["VisitID"] == v,
-                        ["VisitServiceID", "Description", "Quantity"],
+                        ["VisitServiceID", "Service_Name", "Quantity"],
                     ].set_index("VisitServiceID")
                 )
 
@@ -358,11 +358,6 @@ def make_preds(df):
     logger.info(
         f"Query returned {len(df)} rows with {df['VisitID'].nunique()} unique visits"
     )
-    global performance
-    performance = {}
-    performance['Date'] = datetime.now().strftime('%m/%d/%Y %H:%M')
-    performance['Services'] = len(df)
-
     responses, total_time, failed_visits = request_loop(df)
 
     try:
@@ -376,10 +371,8 @@ def make_preds(df):
     except Exception as e:
         logger.debug(f"Error running failed visits: {e}")
 
-    performance['Visits'] = df["VisitID"].nunique()
     logger.debug(f"Failed Visits: {failed_visits}")
     logger.info(f"Inference time: {sum(total_time):.2f} seconds")
-    performance['Time'] = sum(total_time)
 
     # Drop failed before merging predictions and filling nulls to avoid them getting marked as Approved
     df.drop(df[df["VisitID"].isin(failed_visits)].index, inplace=True)
@@ -405,7 +398,6 @@ def write_preds(responses, df):
         logger.debug(
             f"Created prediction dataframe with {len(pred_df)} rejected services"
         )
-        performance['Rejected'] = len(pred_df)
         df = df.merge(pred_df, on="VisitServiceID", how="left")
     else:
         logger.info("No rejected services found, all will be marked as Approved")
@@ -418,18 +410,16 @@ def write_preds(responses, df):
         [
             "VisitID",
             "VisitServiceID",
+            "Service_Name",
             "Medical_Prediction",
             reason_col,
             "Diagnose",
             "Chief_Complaint",
             "ProblemNote",
-            "Symptoms",
+            "Symptoms"   
         ]
     ]
 
     logger.info(f"Final prediction dataframe has {len(pred_df)} rows")
-    
-    column_order = ['Services', 'Visits', 'Time', 'Rejected', 'Date']
-    new_df = pd.DataFrame(performance, columns=column_order, index=[0])
-    new_df.to_csv('etl_analysis.csv', mode='a', header=False, index=False)
+
     return history_df
