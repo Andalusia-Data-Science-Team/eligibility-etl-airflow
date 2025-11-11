@@ -11,4 +11,3 @@ try:
     print("Connection OK")
 except SQLAlchemyError as e:
     print("Connection failed:", e)
-    

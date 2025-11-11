@@ -14,7 +14,7 @@ import os
 import sys
 import pandas as pd
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src.AHJ_Claims import read_data, make_preds, update_table
 
 with open("passcode.json", "r") as file:
@@ -23,7 +23,7 @@ db_configs = db_configs["DB_NAMES"]
 bi_write_passcode = db_configs["BI"]
 ai_write_passcode = db_configs["AI"]
 
-CAIRO_TZ = pendulum.timezone('Africa/Cairo')
+CAIRO_TZ = pendulum.timezone("Africa/Cairo")
 
 
 def failure_callback(context):
@@ -32,14 +32,20 @@ def failure_callback(context):
         dag_run = context.get("dag_run")
         task_instance = context.get("task_instance")
         exception = context.get("exception")
-        execution_date = context.get('execution_date')
-        
+        execution_date = context.get("execution_date")
+
         # Format execution date properly
-        exec_date_str = execution_date.strftime('%Y-%m-%d %H:%M:%S') if execution_date else 'Unknown'
-        
-        subject = f"[Airflow FAILURE] DAG: {dag_run.dag_id} - Task: {task_instance.task_id}"
+        exec_date_str = (
+            execution_date.strftime("%Y-%m-%d %H:%M:%S")
+            if execution_date
+            else "Unknown"
+        )
+
+        subject = (
+            f"[Airflow FAILURE] DAG: {dag_run.dag_id} - Task: {task_instance.task_id}"
+        )
         log_url = f"http://10.24.105.221:8080/log?dag_id={dag_run.dag_id}&task_id={task_instance.task_id}&execution_date={execution_date.isoformat()}"
-        
+
         # Create a more detailed HTML email body
         html_body = f"""
         <html>
@@ -76,44 +82,46 @@ def failure_callback(context):
         </body>
         </html>
         """
-        
+
         # List of recipients
         recipients = [
-            'Nadine.ElSokily@Andalusiagroup.net',
+            "Nadine.ElSokily@Andalusiagroup.net",
         ]
 
         # Send email using SMTP
         try:
             print("Sending failure notification via SMTP...")
-            server = smtplib.SMTP('aws-ex-07.andalusia.loc', 25)
+            server = smtplib.SMTP("aws-ex-07.andalusia.loc", 25)
             server.set_debuglevel(1)
             server.starttls()
-            
+
             # Create message
             msg = MIMEMultipart()
-            msg['From'] = 'ai-service@andalusiagroup.net'
-            msg['To'] = ', '.join(recipients)
-            msg['Subject'] = subject
-            msg.attach(MIMEText(html_body, 'html'))
-            
+            msg["From"] = "ai-service@andalusiagroup.net"
+            msg["To"] = ", ".join(recipients)
+            msg["Subject"] = subject
+            msg.attach(MIMEText(html_body, "html"))
+
             # Send without authentication
             server.send_message(msg)
             server.quit()
             print("✅ Failure notification sent successfully!")
-            
+
         except Exception as smtp_error:
             print(f"❌ Failed to send failure notification via SMTP: {smtp_error}")
             # Fall back to Airflow's send_email if SMTP fails
             try:
                 send_email(
-                    to=['Nadine.ElSokily@Andalusiagroup.net',],
+                    to=[
+                        "Nadine.ElSokily@Andalusiagroup.net",
+                    ],
                     subject=subject,
                     html_content=html_body,
                 )
                 print("Used fallback email method successfully")
             except Exception as fallback_error:
                 print(f"Failed to send email with fallback method: {fallback_error}")
-        
+
     except Exception as e:
         print(f"Failed to process failure notification: {str(e)}")
 
@@ -122,12 +130,16 @@ def success_callback(context):
     """Optional success callback"""
     try:
         dag_run = context.get("dag_run")
-        execution_date = context.get('execution_date')
-        
-        exec_date_str = execution_date.strftime('%Y-%m-%d %H:%M:%S') if execution_date else 'Unknown'
-        
+        execution_date = context.get("execution_date")
+
+        exec_date_str = (
+            execution_date.strftime("%Y-%m-%d %H:%M:%S")
+            if execution_date
+            else "Unknown"
+        )
+
         subject = f"[Airflow SUCCESS] DAG: {dag_run.dag_id} completed successfully"
-        
+
         html_body = f"""
         <html>
         <body>
@@ -155,37 +167,41 @@ def success_callback(context):
         </body>
         </html>
         """
-        
+
         send_email(
-            to=['Mohamed.Reda@Andalusiagroup.net',
-                'Omar.Wafy@Andalusiagroup.net',
-                'Asmaa.Awad@Andalusiagroup.net',
-                'Andrew.Alfy@Andalusiagroup.net',
-                'Nadine.ElSokily@Andalusiagroup.net',],
+            to=[
+                "Mohamed.Reda@Andalusiagroup.net",
+                "Omar.Wafy@Andalusiagroup.net",
+                "Asmaa.Awad@Andalusiagroup.net",
+                "Andrew.Alfy@Andalusiagroup.net",
+                "Nadine.ElSokily@Andalusiagroup.net",
+            ],
             subject=subject,
             html_content=html_body,
         )
         print("Success notification email sent")
-        
+
     except Exception as e:
         print(f"Failed to send success notification email: {str(e)}")
 
 
 # Enhanced default args with anonymous SMTP configuration
 default_args = {
-    'owner': 'airflow',
-    'depends_on_past': False,
-    'retries': 1,
-    'retry_delay': timedelta(minutes=3),
-    'email_on_failure': True,
-    'email_on_retry': False,
-    'email_on_success': False,  # Set to True if you want success emails for individual tasks
-    'email': ['Mohamed.Reda@Andalusiagroup.net',
-              'Omar.Wafy@Andalusiagroup.net',
-              'Asmaa.Awad@Andalusiagroup.net',
-              'Andrew.Alfy@Andalusiagroup.net',
-              'Nadine.ElSokily@Andalusiagroup.net',],  # Default email list
-    'on_failure_callback': failure_callback,
+    "owner": "airflow",
+    "depends_on_past": False,
+    "retries": 1,
+    "retry_delay": timedelta(minutes=3),
+    "email_on_failure": True,
+    "email_on_retry": False,
+    "email_on_success": False,  # Set to True if you want success emails for individual tasks
+    "email": [
+        "Mohamed.Reda@Andalusiagroup.net",
+        "Omar.Wafy@Andalusiagroup.net",
+        "Asmaa.Awad@Andalusiagroup.net",
+        "Andrew.Alfy@Andalusiagroup.net",
+        "Nadine.ElSokily@Andalusiagroup.net",
+    ],  # Default email list
+    "on_failure_callback": failure_callback,
     # 'on_success_callback': success_callback,  # Uncomment if you want success emails
 }
 
@@ -194,57 +210,68 @@ default_args = {
     dag_id="predictions_job",
     default_args=default_args,
     start_date=pendulum.now(CAIRO_TZ).subtract(days=1),
-    schedule_interval='0 0,4,8,12,16,20 * * *',  # Every 4 hours
+    schedule_interval="0 0,4,8,12,16,20 * * *",  # Every 4 hours
     catchup=False,
     tags=["predictions", "dotcare", "parallel"],
     max_active_runs=10,  # Prevent overlapping runs
     description="ETL pipeline for AHJ Claims Medical Predictions from DOT-CARE with parallel processing",
     # DAG-level email configuration
     params={
-        'email_on_dag_failure': True,
-        'notification_emails': ['Nadine.ElSokily@Andalusiagroup.net',]
-    }
+        "email_on_dag_failure": True,
+        "notification_emails": [
+            "Nadine.ElSokily@Andalusiagroup.net",
+        ],
+    },
 )
 def predictions_etl_pipeline():
     @task(
         email_on_failure=True,
         email_on_retry=False,
-        email=['Mohamed.Reda@Andalusiagroup.net',
-               'Omar.Wafy@Andalusiagroup.net',
-               'Asmaa.Awad@Andalusiagroup.net',
-               'Andrew.Alfy@Andalusiagroup.net',
-               'Nadine.ElSokily@Andalusiagroup.net',]
+        email=[
+            "Mohamed.Reda@Andalusiagroup.net",
+            "Omar.Wafy@Andalusiagroup.net",
+            "Asmaa.Awad@Andalusiagroup.net",
+            "Andrew.Alfy@Andalusiagroup.net",
+            "Nadine.ElSokily@Andalusiagroup.net",
+        ],
     )
     def extract():
         df = read_data()
         if df.empty:
-            raise AirflowSkipException("Query returned 0 rows, quitting predictions job")
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            raise AirflowSkipException(
+                "Query returned 0 rows, quitting predictions job"
+            )
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         temp_file = f"/tmp/extracted_claims_{timestamp}.parquet"
         df.to_parquet(temp_file)
         return temp_file
+
     @task(
         email_on_failure=True,
         email_on_retry=False,
-        email=['Nadine.ElSokily@Andalusiagroup.net']
+        email=["Nadine.ElSokily@Andalusiagroup.net"],
     )
     def transform(extracted_data):
         extracted_data = pd.read_parquet(extracted_data)
         history_df = make_preds(extracted_data)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         history_file = f"/tmp/history_{timestamp}.parquet"
         history_df.to_parquet(history_file)
         return history_file
+
     @task(
         email_on_failure=True,
         email_on_retry=False,
-        email=['Nadine.ElSokily@Andalusiagroup.net']
+        email=["Nadine.ElSokily@Andalusiagroup.net"],
     )
     def load(db_configs, history):
         history = pd.read_parquet(history)
-        pred_df = history[["VisitServiceID", "Medical_Prediction", "Reason/Recommendation"]]
+        pred_df = history[
+            ["VisitServiceID", "Medical_Prediction", "Reason/Recommendation"]
+        ]
         update_table(db_configs["BI"], "AHJ_Predictions_DotCare", pred_df)
         update_table(db_configs["AI"], "Claims_Predictions_History", history)
+
     @task
     def cleanup_extraction_file(extracted_data, transformed_data):
         """Clean up the extracted data file"""
@@ -252,7 +279,7 @@ def predictions_etl_pipeline():
             if extracted_data and os.path.exists(extracted_data):
                 os.remove(extracted_data)
                 print(f"Cleaned up extraction file: {extracted_data}")
-                
+
             if transformed_data and os.path.exists(transformed_data):
                 os.remove(transformed_data)
                 print(f"Cleaned up extraction file: {transformed_data}")
@@ -263,11 +290,12 @@ def predictions_etl_pipeline():
 
     # DAG flow with parallel load
     extracted = extract()
-    
+
     transformed = transform(extracted)
 
     load = load(db_configs, transformed)
 
     load >> cleanup_extraction_file(extracted, transformed)
+
 
 dag = predictions_etl_pipeline()

@@ -6,6 +6,7 @@ import base64
 # ---------- Page Setup ----------
 st.set_page_config(page_title="Claims Copilot", page_icon="💊", layout="wide")
 
+
 # ---------- Locate logo & build data URI (so it always renders) ----------
 def _resolve_logo() -> Path:
     here = Path(__file__).resolve().parent
@@ -19,24 +20,27 @@ def _resolve_logo() -> Path:
             return p
     return None
 
+
 def _to_data_uri(p: Path) -> str:
     b64 = base64.b64encode(p.read_bytes()).decode("utf-8")
     return f"data:image/png;base64,{b64}"
+
 
 _LOGO_PATH = _resolve_logo()
 _LOGO_URI = _to_data_uri(_LOGO_PATH) if _LOGO_PATH else ""
 
 # ---------- Palette ----------
 PALETTE = {
-    "bg": "#f8fafc",          # soft neutral background
-    "paper": "#f8f5f2",       # warm paper tone
-    "brand": "#7c4c24",       # Andalusia brown
-    "brand_hover": "#9a6231", # hover tone
-    "muted": "#64748b",       # neutral text
+    "bg": "#f8fafc",  # soft neutral background
+    "paper": "#f8f5f2",  # warm paper tone
+    "brand": "#7c4c24",  # Andalusia brown
+    "brand_hover": "#9a6231",  # hover tone
+    "muted": "#64748b",  # neutral text
 }
 
 # ---------- CSS ----------
-st.markdown(f"""
+st.markdown(
+    f"""
 <style>
 html, body, [data-testid="stAppViewContainer"] {{
     background: {PALETTE['bg']};
@@ -134,7 +138,9 @@ html, body, [data-testid="stAppViewContainer"] {{
     margin: 0 auto;
 }}
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ---------- Header Box ----------
 st.markdown(
@@ -163,17 +169,26 @@ with content:
     with c1:
         if st.button("Eligibility", key="btn-elig", use_container_width=True):
             st.switch_page("pages/1_Eligibility.py")
-        st.markdown('<div class="card surface"><p>Check patient eligibility and payer class.</p></div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="card surface"><p>Check patient eligibility and payer class.</p></div>',
+            unsafe_allow_html=True,
+        )
 
     with c2:
         if st.button("Predictions", key="btn-pred", use_container_width=True):
             st.switch_page("pages/2_Predictions.py")
-        st.markdown('<div class="card surface"><p>Run AI predictions for claims.</p></div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="card surface"><p>Run AI predictions for claims.</p></div>',
+            unsafe_allow_html=True,
+        )
 
     with c3:
         if st.button("Resubmission", key="btn-resub", use_container_width=True):
             st.switch_page("pages/3_Resubmission.py")
-        st.markdown('<div class="card surface"><p>Generate justifications and export.</p></div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="card surface"><p>Generate justifications and export.</p></div>',
+            unsafe_allow_html=True,
+        )
 
 # ---------- Footer ----------
 st.markdown(

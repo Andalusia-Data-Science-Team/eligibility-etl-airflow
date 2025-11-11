@@ -51,18 +51,22 @@ schema = {
     "properties": {
         "Validation of Preventive Actions": {
             "type": "string",
-            "description": "Validation assessment of the effectiveness and relevance of preventive actions taken"
+            "description": "Validation assessment of the effectiveness and relevance of preventive actions taken",
         },
         "Category": {
             "type": "string",
-            "description": "The category that the complaint belongs to from predefined categories"
+            "description": "The category that the complaint belongs to from predefined categories",
         },
         "Recommended Preventive Actions": {
             "type": "string",
-            "description": "Enhancements or new preventive actions to avoid recurrence of complaint"
-        }
+            "description": "Enhancements or new preventive actions to avoid recurrence of complaint",
+        },
     },
-    "required": ["Validation of Preventive Actions", "Category", "Recommended Preventive Actions"],
+    "required": [
+        "Validation of Preventive Actions",
+        "Category",
+        "Recommended Preventive Actions",
+    ],
     "additionalProperties": False,
 }
 

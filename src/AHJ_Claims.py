@@ -102,12 +102,12 @@ def get_conn_engine(passcodes):
             passcodes["driver"],
         )
         params = urllib.parse.quote_plus(
-        f"DRIVER={driver};"
-        f"SERVER={server};"
-        f"DATABASE={db};"
-        f"UID={uid};"
-        f"PWD={pwd};"
-        f"Connection Timeout=300;"
+            f"DRIVER={driver};"
+            f"SERVER={server};"
+            f"DATABASE={db};"
+            f"UID={uid};"
+            f"PWD={pwd};"
+            f"Connection Timeout=300;"
         )
         engine = create_engine("mssql+pyodbc:///?odbc_connect={}".format(params))
         logger.debug(f"Database connection engine created for {server}/{db}")
@@ -124,7 +124,7 @@ def read_data():
     """
     Executes a SQL query using get_conn_engine. If the first attempt fails,
     waits for 5 minutes before trying again. If second attempt fails, reads data from live instead.
-    
+
     Returns:
         pandas DataFrame with query results
     """
@@ -137,7 +137,7 @@ def read_data():
         logger.debug(f"First attempt failed with error: {str(e)}")
         logger.debug("Waiting 5 minutes before retrying...")
         time.sleep(300)  # Wait for 5 minutes (300 seconds)
-    
+
         # Second attempt
         try:
             return pd.read_sql_query(query, get_conn_engine(live_passcode))
@@ -152,7 +152,9 @@ def read_data():
             pass
 
 
-def update_table(passcode: Dict[str, str], table_name: str, df: pd.DataFrame, retries=28, delay=500):
+def update_table(
+    passcode: Dict[str, str], table_name: str, df: pd.DataFrame, retries=28, delay=500
+):
     """
     Updates a database table with the given DataFrame. Retries on failure.
 
@@ -211,9 +213,13 @@ def dev_response(info, services, model="accounts/fireworks/models/deepseek-v3p1"
     - response (str): Model's text response.
     """
     try:
-        json_model = ChatFireworks(model=model, temperature=0.0, max_tokens=11000, model_kwargs={"top_k": 1, "stream": True}, request_timeout=(120, 120)).bind(
-            response_format={"type": "json_object", "schema": schema}
-        )
+        json_model = ChatFireworks(
+            model=model,
+            temperature=0.0,
+            max_tokens=11000,
+            model_kwargs={"top_k": 1, "stream": True},
+            request_timeout=(120, 120),
+        ).bind(response_format={"type": "json_object", "schema": schema})
 
         chat_history = [
             SystemMessage(content=prompt),
@@ -223,12 +229,12 @@ def dev_response(info, services, model="accounts/fireworks/models/deepseek-v3p1"
 
         start = time.time()
         stream = json_model.stream(chat_history)
-        
+
         full_response = ""
 
         for chunk in stream:
             # Access the content from each chunk
-            if hasattr(chunk, 'content') and chunk.content:
+            if hasattr(chunk, "content") and chunk.content:
                 full_response += chunk.content
         end = time.time()
         elapsed = end - start
@@ -303,21 +309,30 @@ def request_loop(df):
             try:
                 row = df[df["VisitID"] == v].iloc[0]
                 # Select only features that are not null to avoid entering empty problem note and symptoms to the model
-                selected_cols = [col for col in row.index if pd.notna(row[col]) and col in [
-                    "AGE", "PATIENT_GENDER", "CHIEF_COMPLAINT",
-                    "PROVIDER_DEPARTMENT", "ICD10", "DIAGNOS_NAME",
-                    "ProblemNote", "Symptoms"
-                ]]
+                selected_cols = [
+                    col
+                    for col in row.index
+                    if pd.notna(row[col])
+                    and col
+                    in [
+                        "AGE",
+                        "PATIENT_GENDER",
+                        "CHIEF_COMPLAINT",
+                        "PROVIDER_DEPARTMENT",
+                        "ICD10",
+                        "DIAGNOS_NAME",
+                        "ProblemNote",
+                        "Symptoms",
+                    ]
+                ]
                 p_info = row[selected_cols].to_dict()
-                v_services = (
-                    df.loc[
-                        df["VisitID"] == v,
-                        ["VisitServiceID", "Service_Name", "Quantity"],
-                    ].set_index("VisitServiceID")
-                )
+                v_services = df.loc[
+                    df["VisitID"] == v,
+                    ["VisitServiceID", "Service_Name", "Quantity"],
+                ].set_index("VisitServiceID")
 
                 if df.loc[df["VisitID"] == v, "Visit_Type"].iloc[0] == "Outpatient":
-                # Auto reject duplicated services to avoid unnecessary input in requests in case of outpatient only
+                    # Auto reject duplicated services to avoid unnecessary input in requests in case of outpatient only
                     v_services = v_services.drop_duplicates(keep="first")
                     dups = list(
                         set(df.loc[df["VisitID"] == v, "VisitServiceID"])
@@ -325,9 +340,9 @@ def request_loop(df):
                     )
                     if dups:
                         responses.update(duplicate_services(dups))
-                        
+
                 res_time, answer = dev_response(
-                p_info, v_services.to_dict(orient="index")
+                    p_info, v_services.to_dict(orient="index")
                 )
                 logger.debug(
                     f"Response received in {res_time:.2f} seconds for visit {v}"
@@ -364,7 +379,9 @@ def make_preds(df):
         # Retry on failed visits one time
         if failed_visits:
             logger.debug(f"Retrying on Failed Visits: {failed_visits}")
-            failed_responses, failed_total_time, failed_visits = request_loop(df[df['VisitID'].isin(failed_visits)])
+            failed_responses, failed_total_time, failed_visits = request_loop(
+                df[df["VisitID"].isin(failed_visits)]
+            )
             if failed_responses:
                 responses.update(failed_responses)
             total_time = total_time + failed_total_time
@@ -416,7 +433,7 @@ def write_preds(responses, df):
             "Diagnose",
             "Chief_Complaint",
             "ProblemNote",
-            "Symptoms"   
+            "Symptoms",
         ]
     ]
 

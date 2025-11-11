@@ -6,6 +6,7 @@ import pandas as pd
 import sqlalchemy as sa
 import streamlit as st
 
+
 # add near the bottom of src/db.py
 @st.cache_data(ttl=120, show_spinner=False)  # 2 min cache
 def cached_read(engine_key: str, query: str, params: dict | None = None):
@@ -15,9 +16,11 @@ def cached_read(engine_key: str, query: str, params: dict | None = None):
     else:
         return read_sql(engine_key, query)
 
+
 HERE = Path(__file__).resolve()
 ROOT = HERE.parents[1]  # repo root (parent of src)
 PASSCODE_PATH = ROOT / "passcode.json"
+
 
 @st.cache_resource(show_spinner=False)
 def get_engines():
@@ -40,7 +43,7 @@ def get_engines():
     def mk_engine(pc: dict) -> sa.Engine:
         # Build a reliable ODBC connect string
         driver = pc.get("driver", "{ODBC Driver 17 for SQL Server}")
-        server = pc["Server"]                  # add ",1433" if your server uses a non-default port
+        server = pc["Server"]  # add ",1433" if your server uses a non-default port
         database = pc["Database"]
         uid = pc["UID"]
         pwd = pc["PWD"]
@@ -50,8 +53,8 @@ def get_engines():
             f"SERVER={server};"
             f"DATABASE={database};"
             f"UID={uid};PWD={pwd};"
-            "Encrypt=no;"                 # change to 'yes;' if your server requires encryption
-            "TrustServerCertificate=yes;" # helps avoid CA issues if Encrypt=yes
+            "Encrypt=no;"  # change to 'yes;' if your server requires encryption
+            "TrustServerCertificate=yes;"  # helps avoid CA issues if Encrypt=yes
             "MARS_Connection=Yes;"
             "Connection Timeout=15;"
         )
@@ -66,12 +69,14 @@ def get_engines():
         "REPLICA": mk_engine(cfg.get("Replica", cfg.get("AHJ_DOT-CARE", cfg["LIVE"]))),
     }
 
+
 def read_sql(engine_key: str, query: str, params: dict | None = None) -> pd.DataFrame:
     eng = get_engines()[engine_key]
     # Only pass params if it's not None and not empty
     if params and any(f":{k}" in query for k in params.keys()):
         # Use SQLAlchemy text() to properly handle named parameters
         from sqlalchemy.sql import text
+
         return pd.read_sql(text(query), eng, params=params)
     elif params:
         # For positional parameters

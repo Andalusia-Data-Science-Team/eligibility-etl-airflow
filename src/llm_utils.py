@@ -5,6 +5,7 @@ from sqlalchemy import create_engine
 import time
 import pandas as pd
 
+
 def get_conn_engine(passcodes, logger):
     """
     Creates and returns a SQLAlchemy engine for connecting to the SQL database.

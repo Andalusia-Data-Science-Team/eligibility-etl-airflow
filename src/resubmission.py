@@ -75,15 +75,23 @@ schema = {
     "additionalProperties": False,
 }
 
-def generate_justification(visit_data, len_rejected, model="accounts/fireworks/models/deepseek-v3p1"):
+
+def generate_justification(
+    visit_data, len_rejected, model="accounts/fireworks/models/deepseek-v3p1"
+):
     json_model = ChatFireworks(
-        model=model, temperature=0.2, max_tokens=5000, model_kwargs={"top_k": 1}, request_timeout=(120, 120)).bind(
-            response_format={"type": "json_object", "schema": schema}
-    )
+        model=model,
+        temperature=0.2,
+        max_tokens=5000,
+        model_kwargs={"top_k": 1},
+        request_timeout=(120, 120),
+    ).bind(response_format={"type": "json_object", "schema": schema})
 
     chat_history = [
         SystemMessage(content=prompt),
-        SystemMessage(content=f'You are supposed to return {len_rejected} justifications, for {len_rejected} rejected service/s only'),
+        SystemMessage(
+            content=f"You are supposed to return {len_rejected} justifications, for {len_rejected} rejected service/s only"
+        ),
         HumanMessage(content=str(visit_data)),
     ]
 
@@ -92,17 +100,41 @@ def generate_justification(visit_data, len_rejected, model="accounts/fireworks/m
 
 
 def data_prep(df):
-    patient_info = str(df[['Gender', 'Age', 'Diagnosis', 'ICD10', 'ProblemNote', 'Chief_Complaint', 'Symptoms']].iloc[0].dropna().to_dict())
+    patient_info = str(
+        df[
+            [
+                "Gender",
+                "Age",
+                "Diagnosis",
+                "ICD10",
+                "ProblemNote",
+                "Chief_Complaint",
+                "Symptoms",
+            ]
+        ]
+        .iloc[0]
+        .dropna()
+        .to_dict()
+    )
     all_services = None
-    if (df['Reason'] == 'High alert Drug to drug interaction / Drug combination is contra-indicated').any():
-        codes = ['MN-1-1', 'AD-3-5', 'AD-1-4']
-        all_services = df['Service_Name'].to_list()
-        rejected = df['Service_Name'].loc[df['ResponseReasonCode'].isin(codes)].to_list()
+    if (
+        df["Reason"]
+        == "High alert Drug to drug interaction / Drug combination is contra-indicated"
+    ).any():
+        codes = ["MN-1-1", "AD-3-5", "AD-1-4"]
+        all_services = df["Service_Name"].to_list()
+        rejected = (
+            df["Service_Name"].loc[df["ResponseReasonCode"].isin(codes)].to_list()
+        )
         all_services = set(all_services) - set(rejected)
-        rejected = df[['VisitServiceID', 'Service_Name', 'Note', 'Reason']].loc[df['ResponseReasonCode'].isin(codes)].to_dict(orient='records')
+        rejected = (
+            df[["VisitServiceID", "Service_Name", "Note", "Reason"]]
+            .loc[df["ResponseReasonCode"].isin(codes)]
+            .to_dict(orient="records")
+        )
     else:
-        rejected = df[['VisitServiceID', 'Service_Name', 'Note', 'Reason']]
-        rejected = rejected = rejected.dropna(axis=1).to_dict(orient='records')
+        rejected = df[["VisitServiceID", "Service_Name", "Note", "Reason"]]
+        rejected = rejected = rejected.dropna(axis=1).to_dict(orient="records")
 
     result = (patient_info, f"Rejected services: {rejected}")
     if all_services is not None:
@@ -112,12 +144,12 @@ def data_prep(df):
 
 def transform_loop(df, logger):
     data_dict = {}
-    visits = df['VisitID'].unique()
+    visits = df["VisitID"].unique()
     logger.info(f"Dataframe has {len(df)} services with {len(visits)} unique visits")
     failed_visits = []
     for v in tqdm(visits, desc="Processing"):
-        sub = df.loc[df['VisitID'] == v]
-        visit_data, len_rej= data_prep(sub)
+        sub = df.loc[df["VisitID"] == v]
+        visit_data, len_rej = data_prep(sub)
         try:
             response = generate_justification(visit_data, len_rej)
             data_dict.update(ast.literal_eval(response).get("Justifications", {}))
@@ -132,15 +164,31 @@ def transform_loop(df, logger):
                 logger.debug(f"Error processing visit {v}: {e}")
                 failed_visits.append(v)
     logger.debug(f"Failed visits: {failed_visits}")
-    result_df = pd.DataFrame(list(data_dict.items()), columns=['VisitServiceID', 'Justification'])
-    result_df['VisitServiceID'] = result_df['VisitServiceID'].astype(int)
+    result_df = pd.DataFrame(
+        list(data_dict.items()), columns=["VisitServiceID", "Justification"]
+    )
+    result_df["VisitServiceID"] = result_df["VisitServiceID"].astype(int)
     return final_table(result_df, df)
 
 
 def final_table(result_df, df):
-    merged = result_df.merge(df, on='VisitServiceID', how='left')
-    merged = merged.loc[merged['Status'] != 'approved']
-    merged = merged [['RequestTransactionID', 'VisitID', 'StatementId',
-       'Sequence', 'Service_id', 'Justification', 'Reason', 'Service_Name',
-        'VisitStartDate', 'ContractorEnName', 'VisitClassificationEnName', 'VisitServiceID', 'ResponseReasonCode']]
+    merged = result_df.merge(df, on="VisitServiceID", how="left")
+    merged = merged.loc[merged["Status"] != "approved"]
+    merged = merged[
+        [
+            "RequestTransactionID",
+            "VisitID",
+            "StatementId",
+            "Sequence",
+            "Service_id",
+            "Justification",
+            "Reason",
+            "Service_Name",
+            "VisitStartDate",
+            "ContractorEnName",
+            "VisitClassificationEnName",
+            "VisitServiceID",
+            "ResponseReasonCode",
+        ]
+    ]
     return merged
