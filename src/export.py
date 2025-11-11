@@ -18,10 +18,12 @@ HEADER = "Medical Resubmission Letter"
 ORG = "Andalusia Group"
 FOOTER = "This resubmission includes medical justifications aligned with clinical best practices."
 
+
 def _letters_header(doc: Document, title: str):
     h = doc.add_heading(title, level=1)
     for r in h.runs:
         r.font.size = Pt(16)
+
 
 def _paragraph(doc: Document, text: str, bold=False):
     p = doc.add_paragraph()
@@ -29,7 +31,10 @@ def _paragraph(doc: Document, text: str, bold=False):
     run.bold = bold
     run.font.size = Pt(11)
 
-def render_docx(df: pd.DataFrame, visit_id: str, patient_hint: str | None = None) -> bytes:
+
+def render_docx(
+    df: pd.DataFrame, visit_id: str, patient_hint: str | None = None
+) -> bytes:
     """
     df columns expected: VisitServiceID, Service_Name, Reason, Justification, ContractorEnName, VisitStartDate
     """
@@ -40,8 +45,14 @@ def render_docx(df: pd.DataFrame, visit_id: str, patient_hint: str | None = None
     if patient_hint:
         _paragraph(doc, patient_hint)
     if not df.empty:
-        vdate = str(df["VisitStartDate"].iloc[0]) if "VisitStartDate" in df.columns else "-"
-        payer = str(df["ContractorEnName"].iloc[0]) if "ContractorEnName" in df.columns else "-"
+        vdate = (
+            str(df["VisitStartDate"].iloc[0]) if "VisitStartDate" in df.columns else "-"
+        )
+        payer = (
+            str(df["ContractorEnName"].iloc[0])
+            if "ContractorEnName" in df.columns
+            else "-"
+        )
         _paragraph(doc, f"Visit Date: {vdate}")
         _paragraph(doc, f"Payer: {payer}")
     doc.add_paragraph()  # spacer
@@ -62,18 +73,21 @@ def render_docx(df: pd.DataFrame, visit_id: str, patient_hint: str | None = None
     doc.save(bio)
     return bio.getvalue()
 
-def render_pdf(df: pd.DataFrame, visit_id: str, patient_hint: str | None = None) -> bytes:
+
+def render_pdf(
+    df: pd.DataFrame, visit_id: str, patient_hint: str | None = None
+) -> bytes:
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     W, H = A4
-    x, y = 20*mm, H - 20*mm
-    line_h = 6*mm
+    x, y = 20 * mm, H - 20 * mm
+    line_h = 6 * mm
 
     def write(line: str, bold=False):
         nonlocal y
-        if y < 25*mm:
+        if y < 25 * mm:
             c.showPage()
-            y = H - 20*mm
+            y = H - 20 * mm
         if bold:
             c.setFont("Helvetica-Bold", 12)
         else:
@@ -87,11 +101,17 @@ def render_pdf(df: pd.DataFrame, visit_id: str, patient_hint: str | None = None)
     if patient_hint:
         write(patient_hint)
     if not df.empty:
-        vdate = str(df["VisitStartDate"].iloc[0]) if "VisitStartDate" in df.columns else "-"
-        payer = str(df["ContractorEnName"].iloc[0]) if "ContractorEnName" in df.columns else "-"
+        vdate = (
+            str(df["VisitStartDate"].iloc[0]) if "VisitStartDate" in df.columns else "-"
+        )
+        payer = (
+            str(df["ContractorEnName"].iloc[0])
+            if "ContractorEnName" in df.columns
+            else "-"
+        )
         write(f"Visit Date: {vdate}")
         write(f"Payer: {payer}")
-    y -= 4*mm
+    y -= 4 * mm
     write("Justifications", bold=True)
 
     for _, row in df.iterrows():
@@ -104,13 +124,15 @@ def render_pdf(df: pd.DataFrame, visit_id: str, patient_hint: str | None = None)
         for chunk in wrap_text(just, 95):
             write(chunk)
 
-        y -= 3*mm
+        y -= 3 * mm
 
-    y -= 3*mm
+    y -= 3 * mm
     write(FOOTER)
     c.save()
     return buffer.getvalue()
 
+
 def wrap_text(text: str, width: int) -> Iterable[str]:
     import textwrap
+
     return textwrap.wrap(text or "", width=width)

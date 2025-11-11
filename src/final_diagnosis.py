@@ -35,15 +35,15 @@ schema = {
             "properties": {
                 "Diagnosis": {
                     "type": "string",
-                    "description": "Primary diagnosis description"
+                    "description": "Primary diagnosis description",
                 },
                 "ICD10": {
                     "type": "string",
-                    "description": "ICD10 code for the primary diagnosis"
-                }
+                    "description": "ICD10 code for the primary diagnosis",
+                },
             },
             "required": ["Diagnosis", "ICD10"],
-            "additionalProperties": False
+            "additionalProperties": False,
         },
         "Secondary Diagnoses": {
             "type": "object",
@@ -52,23 +52,23 @@ schema = {
                     "type": "array",
                     "items": {
                         "type": "string",
-                        "description": "Secondary diagnosis description"
-                    }
+                        "description": "Secondary diagnosis description",
+                    },
                 },
                 "ICD10": {
                     "type": "array",
                     "items": {
                         "type": "string",
-                        "description": "ICD10 code for secondary diagnosis"
-                    }
-                }
+                        "description": "ICD10 code for secondary diagnosis",
+                    },
+                },
             },
             "required": ["Diagnosis", "ICD10"],
-            "additionalProperties": False
-        }
+            "additionalProperties": False,
+        },
     },
     "required": ["Primary Diagnosis"],
-    "additionalProperties": False
+    "additionalProperties": False,
 }
 
 prompt = """
@@ -144,7 +144,9 @@ def read_data(query, passcode):
             logger.debug(f"Second attempt failed with error: {str(e)}")
 
 
-def update_table(passcode: Dict[str, str], table_name: str, df: pd.DataFrame, retries=28, delay=500):
+def update_table(
+    passcode: Dict[str, str], table_name: str, df: pd.DataFrame, retries=28, delay=500
+):
     """
     Updates a database table with the given DataFrame. Retries on failure.
 
@@ -226,41 +228,65 @@ def data_prep(sub):
     - specialty (str): Patient's provider department.
     - data (list[str]): vital signs, progress notes, diagnosis, etc..
     """
-    specialty = sub['specialty'].iloc[0]
+    specialty = sub["specialty"].iloc[0]
     data = []  # a list of strings
     # Vitals
-    vitals = sub[['Vital_Sign1', 'Vital_SignType']].dropna()
-    vitals = vitals.drop_duplicates(subset=['Vital_Sign1', 'Vital_SignType'], keep='last')
+    vitals = sub[["Vital_Sign1", "Vital_SignType"]].dropna()
+    vitals = vitals.drop_duplicates(
+        subset=["Vital_Sign1", "Vital_SignType"], keep="last"
+    )
     if not vitals.empty:
-        vitals = 'Vital Signs: ' + str(vitals.set_index('Vital_SignType')['Vital_Sign1'].to_dict())
+        vitals = "Vital Signs: " + str(
+            vitals.set_index("Vital_SignType")["Vital_Sign1"].to_dict()
+        )
         data.append(vitals)
     # Notes
-    if sub['Note'].notna().any():  # at least one note exists
+    if sub["Note"].notna().any():  # at least one note exists
         notes = summarize_notes(sub)
         data = data + notes
     # Clinical Sheet
-    sheets = sub[['HTMLBody', 'Form_Type']].dropna()
+    sheets = sub[["HTMLBody", "Form_Type"]].dropna()
     for row in sheets.itertuples(index=True):
         sheet = extract_cn(row.HTMLBody, row.Form_Type)
         if sheet is not None:
             data.append(sheet)
     # Body
-    if sub['Body'].notna().any():
-        data = data + list(sub['Body'].unique())
+    if sub["Body"].notna().any():
+        data = data + list(sub["Body"].unique())
     # Diagnosis, chief complaint, symptoms, ... age and gender
-    info = sub[['DiagnoseName', 'ICDDiagnoseCode', 'Age', 'Gender', 'ChiefComplaintNotes', 'SymptomNotes']].dropna(axis=1).iloc[0].to_dict()
+    info = (
+        sub[
+            [
+                "DiagnoseName",
+                "ICDDiagnoseCode",
+                "Age",
+                "Gender",
+                "ChiefComplaintNotes",
+                "SymptomNotes",
+            ]
+        ]
+        .dropna(axis=1)
+        .iloc[0]
+        .to_dict()
+    )
     data.append(str(info))
     return specialty, set(data)
 
 
 def call_llm(sub, model="accounts/fireworks/models/qwen3-30b-a3b-thinking-2507"):
-    json_model = ChatFireworks(model=model, temperature=0.0, max_tokens=11000, model_kwargs={"top_k": 1, "stream": True}, request_timeout=(120, 200)).bind(
-        response_format={"type": "json_object", "schema": schema}
-    )
+    json_model = ChatFireworks(
+        model=model,
+        temperature=0.0,
+        max_tokens=11000,
+        model_kwargs={"top_k": 1, "stream": True},
+        request_timeout=(120, 200),
+    ).bind(response_format={"type": "json_object", "schema": schema})
     specialty, data = data_prep(sub)
     chat_history = [
-        SystemMessage(content="You are a helpful medical expert. You will be provided with a patient's data during their visit to the hospital, the initial diagnosis and ICD10 code"),
-        HumanMessage(content=f'A patient presented to the {specialty} department'),
+        SystemMessage(
+            content="You are a helpful medical expert. You will be provided with a patient's data during their visit to the hospital, the initial diagnosis and ICD10 code"
+        ),
+        HumanMessage(content=f"A patient presented to the {specialty} department"),
         HumanMessage(content=str(data)),
         SystemMessage(content=prompt),
     ]
@@ -269,7 +295,7 @@ def call_llm(sub, model="accounts/fireworks/models/qwen3-30b-a3b-thinking-2507")
     full_response = ""
     for chunk in stream:
         # Access the content from each chunk
-        if hasattr(chunk, 'content') and chunk.content:
+        if hasattr(chunk, "content") and chunk.content:
             full_response += chunk.content
     end = time.time()
     elapsed = end - start
@@ -278,22 +304,22 @@ def call_llm(sub, model="accounts/fireworks/models/qwen3-30b-a3b-thinking-2507")
 
 
 def extract_cn(html, form_type):
-    soup = BeautifulSoup(html, 'lxml')
-    if form_type in ('ApprovalReport', 'MedicalReport', 'ApproverReport'):
+    soup = BeautifulSoup(html, "lxml")
+    if form_type in ("ApprovalReport", "MedicalReport", "ApproverReport"):
         summary = []
         # Get all tags of interest from the entire soup, not just body
-        for tag in soup.find_all(['div']):
+        for tag in soup.find_all(["div"]):
             text = tag.get_text(" ", strip=True)
             if text and text not in summary:  # avoid duplicates
                 summary.append(text)
 
         # To remove PII
-        if form_type == 'MedicalReport':
+        if form_type == "MedicalReport":
             return summary[-3]
         else:
             return summary[-2]
-    elif form_type == 'Approval':
-        return soup.find('pre').get_text(" ", strip=True) if soup.find('pre') else None
+    elif form_type == "Approval":
+        return soup.find("pre").get_text(" ", strip=True) if soup.find("pre") else None
 
 
 def get_description(raw_response):
@@ -305,7 +331,9 @@ def get_description(raw_response):
         sec_diagnosis = secondary.get("Diagnosis", [])
         sec_icd = secondary.get("ICD10", [])
     except Exception:
-        logger.error(f"Failed to parse JSON response {traceback.format_exc()}, Raw response: {raw_response}")
+        logger.error(
+            f"Failed to parse JSON response {traceback.format_exc()}, Raw response: {raw_response}"
+        )
     return prim_diagnosis, prim_icd, sec_diagnosis, sec_icd
 
 
@@ -317,23 +345,32 @@ def processing_thoughts(text):
 
 def transform_loop(df):
     len_before = len(df)
-    df = df.dropna(subset=['DiagnoseName'])
+    df = df.dropna(subset=["DiagnoseName"])
     logger.info(f"Dropped {len_before - len(df)} rows with null diagnosis")
-    logger.info(f"Remaining dataframe has {len(df)} rows with {df['Episode_key'].nunique()} unique visits")
-    cols = ['Primary_Diagnosis', 'Primary_ICD10', 'Secondary_Diagnoses', 'Secondary_ICD10']
+    logger.info(
+        f"Remaining dataframe has {len(df)} rows with {df['Episode_key'].nunique()} unique visits"
+    )
+    cols = [
+        "Primary_Diagnosis",
+        "Primary_ICD10",
+        "Secondary_Diagnoses",
+        "Secondary_ICD10",
+    ]
     for col in cols:
         df[col] = None
     visits = df["Episode_key"].unique()
     failed_visits: list[str] = []
     for v in tqdm(visits, desc="Processing"):
-        sub = df.loc[df['Episode_key'] == v]
+        sub = df.loc[df["Episode_key"] == v]
         try:
             try:
-               answer, elapsed = call_llm(sub)
+                answer, elapsed = call_llm(sub)
             except RateLimitError as e:
                 logger.error(e)
                 sleep_time = np.random.randint(60, 120)
-                logger.debug(f"Waiting {sleep_time} seconds before retrying due to rate limit")
+                logger.debug(
+                    f"Waiting {sleep_time} seconds before retrying due to rate limit"
+                )
                 time.sleep(sleep_time)
                 answer, elapsed = call_llm(sub)
             logger.debug(f"Response received in {elapsed:.2f} seconds for visit {v}")
@@ -342,22 +379,26 @@ def transform_loop(df):
             if response is None:
                 logger.debug(f"Processed response is none, before processing: {answer}")
             elif response.strip() == "":
-                logger.debug(f"Processed response is empty string, before processing: {answer}")
+                logger.debug(
+                    f"Processed response is empty string, before processing: {answer}"
+                )
             prim_diagnosis, prim_icd, sec_diagnosis, sec_icd = get_description(response)
             idx = df[df["Episode_key"] == v].index
-            df.loc[idx, 'Primary_Diagnosis'] = prim_diagnosis
-            df.loc[idx, 'Primary_ICD10'] = prim_icd
-            df.loc[idx, 'Secondary_Diagnoses'] = ',  '.join(sec_diagnosis)
-            df.loc[idx, 'Secondary_ICD10'] = ',  '.join(sec_icd)
+            df.loc[idx, "Primary_Diagnosis"] = prim_diagnosis
+            df.loc[idx, "Primary_ICD10"] = prim_icd
+            df.loc[idx, "Secondary_Diagnoses"] = ",  ".join(sec_diagnosis)
+            df.loc[idx, "Secondary_ICD10"] = ",  ".join(sec_icd)
 
         except Exception:
             logger.error(f"Error processing Episode {v}: {traceback.format_exc()}")
             failed_visits.append(v)
 
     logger.info(f"Failed Visits: {failed_visits}")
-    result = df[['Episode_key'] + cols].drop_duplicates(keep='last')
-    return result[~result['Episode_key'].isin(failed_visits)]  # df[df['Episode_key'].isin(failed_visits)]
+    result = df[["Episode_key"] + cols].drop_duplicates(keep="last")
+    return result[
+        ~result["Episode_key"].isin(failed_visits)
+    ]  # df[df['Episode_key'].isin(failed_visits)]
 
 
 def generate_ep_key(visit_id):
-    return '11_' + visit_id
+    return "11_" + visit_id

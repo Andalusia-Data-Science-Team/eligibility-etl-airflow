@@ -15,13 +15,13 @@ import sys
 import pandas as pd
 import numpy as np
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src.final_diagnosis import read_data, generate_ep_key, transform_loop, update_table
 
 with open("passcode.json", "r") as file:
     db_configs = json.load(file)
 db_configs = db_configs["DB_NAMES"]
-read_passcode = db_configs["BI_READ"] 
+read_passcode = db_configs["BI_READ"]
 live_passcode = db_configs["LIVE"]
 replica_passcode = db_configs["AHJ_DOT-CARE"]
 
@@ -30,7 +30,7 @@ with open(Path("sql") / "final_diagnosis.sql", "r") as file:
 with open(Path("sql") / "clinical_sheets.sql", "r") as file:
     cn_query = file.read()
 
-CAIRO_TZ = pendulum.timezone('Africa/Cairo')
+CAIRO_TZ = pendulum.timezone("Africa/Cairo")
 
 
 def failure_callback(context):
@@ -39,14 +39,20 @@ def failure_callback(context):
         dag_run = context.get("dag_run")
         task_instance = context.get("task_instance")
         exception = context.get("exception")
-        execution_date = context.get('execution_date')
-        
+        execution_date = context.get("execution_date")
+
         # Format execution date properly
-        exec_date_str = execution_date.strftime('%Y-%m-%d %H:%M:%S') if execution_date else 'Unknown'
-        
-        subject = f"[Airflow FAILURE] DAG: {dag_run.dag_id} - Task: {task_instance.task_id}"
+        exec_date_str = (
+            execution_date.strftime("%Y-%m-%d %H:%M:%S")
+            if execution_date
+            else "Unknown"
+        )
+
+        subject = (
+            f"[Airflow FAILURE] DAG: {dag_run.dag_id} - Task: {task_instance.task_id}"
+        )
         log_url = f"http://10.24.105.221:8080/log?dag_id={dag_run.dag_id}&task_id={task_instance.task_id}&execution_date={execution_date.isoformat()}"
-        
+
         # Create a more detailed HTML email body
         html_body = f"""
         <html>
@@ -83,44 +89,46 @@ def failure_callback(context):
         </body>
         </html>
         """
-        
+
         # List of recipients
         recipients = [
-            'Nadine.ElSokily@Andalusiagroup.net',
+            "Nadine.ElSokily@Andalusiagroup.net",
         ]
 
         # Send email using SMTP
         try:
             print("Sending failure notification via SMTP...")
-            server = smtplib.SMTP('aws-ex-07.andalusia.loc', 25)
+            server = smtplib.SMTP("aws-ex-07.andalusia.loc", 25)
             server.set_debuglevel(1)
             server.starttls()
-            
+
             # Create message
             msg = MIMEMultipart()
-            msg['From'] = 'ai-service@andalusiagroup.net'
-            msg['To'] = ', '.join(recipients)
-            msg['Subject'] = subject
-            msg.attach(MIMEText(html_body, 'html'))
-            
+            msg["From"] = "ai-service@andalusiagroup.net"
+            msg["To"] = ", ".join(recipients)
+            msg["Subject"] = subject
+            msg.attach(MIMEText(html_body, "html"))
+
             # Send without authentication
             server.send_message(msg)
             server.quit()
             print("✅ Failure notification sent successfully!")
-            
+
         except Exception as smtp_error:
             print(f"❌ Failed to send failure notification via SMTP: {smtp_error}")
             # Fall back to Airflow's send_email if SMTP fails
             try:
                 send_email(
-                    to=['Nadine.ElSokily@Andalusiagroup.net',],
+                    to=[
+                        "Nadine.ElSokily@Andalusiagroup.net",
+                    ],
                     subject=subject,
                     html_content=html_body,
                 )
                 print("Used fallback email method successfully")
             except Exception as fallback_error:
                 print(f"Failed to send email with fallback method: {fallback_error}")
-        
+
     except Exception as e:
         print(f"Failed to process failure notification: {str(e)}")
 
@@ -129,12 +137,16 @@ def success_callback(context):
     """Optional success callback"""
     try:
         dag_run = context.get("dag_run")
-        execution_date = context.get('execution_date')
-        
-        exec_date_str = execution_date.strftime('%Y-%m-%d %H:%M:%S') if execution_date else 'Unknown'
-        
+        execution_date = context.get("execution_date")
+
+        exec_date_str = (
+            execution_date.strftime("%Y-%m-%d %H:%M:%S")
+            if execution_date
+            else "Unknown"
+        )
+
         subject = f"[Airflow SUCCESS] DAG: {dag_run.dag_id} completed successfully"
-        
+
         html_body = f"""
         <html>
         <body>
@@ -162,33 +174,37 @@ def success_callback(context):
         </body>
         </html>
         """
-        
+
         send_email(
-            to=['Nadine.ElSokily@Andalusiagroup.net',],
+            to=[
+                "Nadine.ElSokily@Andalusiagroup.net",
+            ],
             subject=subject,
             html_content=html_body,
         )
         print("Success notification email sent")
-        
+
     except Exception as e:
         print(f"Failed to send success notification email: {str(e)}")
 
 
 # Enhanced default args with anonymous SMTP configuration
 default_args = {
-    'owner': 'airflow',
-    'depends_on_past': False,
-    'retries': 1,
-    'retry_delay': timedelta(minutes=3),
-    'email_on_failure': True,
-    'email_on_retry': False,
-    'email_on_success': False,  # Set to True if you want success emails for individual tasks
-    'email': ['Mohamed.Reda@Andalusiagroup.net',
-              'Omar.Wafy@Andalusiagroup.net',
-              'Asmaa.Awad@Andalusiagroup.net',
-              'Andrew.Alfy@Andalusiagroup.net',
-              'Nadine.ElSokily@Andalusiagroup.net',],  # Default email list
-    'on_failure_callback': failure_callback,
+    "owner": "airflow",
+    "depends_on_past": False,
+    "retries": 1,
+    "retry_delay": timedelta(minutes=3),
+    "email_on_failure": True,
+    "email_on_retry": False,
+    "email_on_success": False,  # Set to True if you want success emails for individual tasks
+    "email": [
+        "Mohamed.Reda@Andalusiagroup.net",
+        "Omar.Wafy@Andalusiagroup.net",
+        "Asmaa.Awad@Andalusiagroup.net",
+        "Andrew.Alfy@Andalusiagroup.net",
+        "Nadine.ElSokily@Andalusiagroup.net",
+    ],  # Default email list
+    "on_failure_callback": failure_callback,
     # 'on_success_callback': success_callback,  # Uncomment if you want success emails
 }
 
@@ -204,46 +220,54 @@ default_args = {
     description="ETL pipeline for AHJ Final Diagnosis for Medical Audit team",
     # DAG-level email configuration
     params={
-        'email_on_dag_failure': True,
-        'notification_emails': ['Nadine.ElSokily@Andalusiagroup.net',]
-    }
+        "email_on_dag_failure": True,
+        "notification_emails": [
+            "Nadine.ElSokily@Andalusiagroup.net",
+        ],
+    },
 )
 def final_diagnosis_etl_pipeline():
     @task(
         email_on_failure=True,
         email_on_retry=False,
-        email=['Mohamed.Reda@Andalusiagroup.net',
-               'Omar.Wafy@Andalusiagroup.net',
-               'Asmaa.Awad@Andalusiagroup.net',
-               'Andrew.Alfy@Andalusiagroup.net',
-               'Nadine.ElSokily@Andalusiagroup.net',]
+        email=[
+            "Mohamed.Reda@Andalusiagroup.net",
+            "Omar.Wafy@Andalusiagroup.net",
+            "Asmaa.Awad@Andalusiagroup.net",
+            "Andrew.Alfy@Andalusiagroup.net",
+            "Nadine.ElSokily@Andalusiagroup.net",
+        ],
     )
     def extract():
         bi = read_data(query, read_passcode)
-        bi = bi.drop_duplicates(keep='last')
+        bi = bi.drop_duplicates(keep="last")
         if bi.empty:
             raise AirflowSkipException("Quitting final diagnosis job")
-        try:    
-            live = read_data(cn_query, replica_passcode)    
+        try:
+            live = read_data(cn_query, replica_passcode)
             if live.empty:
-                print("An issue was detected with the replica, reading from live database..")
+                print(
+                    "An issue was detected with the replica, reading from live database.."
+                )
                 live = read_data(cn_query, live_passcode)
         except Exception as e:
             print(e)
             live = read_data(cn_query, live_passcode)
-        live['VisitID'] = live['VisitID'].astype(str)
-        live['Episode_key'] = live.apply(lambda row: generate_ep_key(row["VisitID"]), axis=1)
-        df = bi.merge(live, how='left', on='Episode_key')
-        df = df.loc[~df['DiagnoseName'].isna()]
+        live["VisitID"] = live["VisitID"].astype(str)
+        live["Episode_key"] = live.apply(
+            lambda row: generate_ep_key(row["VisitID"]), axis=1
+        )
+        df = bi.merge(live, how="left", on="Episode_key")
+        df = df.loc[~df["DiagnoseName"].isna()]
 
-        unique_visits = df['Episode_key'].unique()
+        unique_visits = df["Episode_key"].unique()
         visit_chunks = np.array_split(unique_visits, 4)
-        df1 = df[df['Episode_key'].isin(visit_chunks[0])]
-        df2 = df[df['Episode_key'].isin(visit_chunks[1])]
-        df3 = df[df['Episode_key'].isin(visit_chunks[2])]
-        df4 = df[df['Episode_key'].isin(visit_chunks[3])]
+        df1 = df[df["Episode_key"].isin(visit_chunks[0])]
+        df2 = df[df["Episode_key"].isin(visit_chunks[1])]
+        df3 = df[df["Episode_key"].isin(visit_chunks[2])]
+        df4 = df[df["Episode_key"].isin(visit_chunks[3])]
 
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         temp1 = f"/tmp/extracted1_final_diagnosis_{timestamp}.parquet"
         temp2 = f"/tmp/extracted2_final_diagnosis_{timestamp}.parquet"
         temp3 = f"/tmp/extracted3_final_diagnosis_{timestamp}.parquet"
@@ -254,33 +278,37 @@ def final_diagnosis_etl_pipeline():
         df3.to_parquet(temp3)
         df4.to_parquet(temp4)
 
-        return [temp1, temp2, temp3 , temp4]
+        return [temp1, temp2, temp3, temp4]
+
     @task
     def get_item(lst, idx):
         return lst[idx]
+
     @task(
         email_on_failure=True,
         email_on_retry=False,
-        email=['Nadine.ElSokily@Andalusiagroup.net']
+        email=["Nadine.ElSokily@Andalusiagroup.net"],
     )
     def transform(extracted_data):
         extracted_data = pd.read_parquet(extracted_data)
         result_df = transform_loop(extracted_data)
-    
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         df_no = np.random.randint(0, 1000)
         result_file = f"/tmp/result_{df_no}_{timestamp}.parquet"
         result_df.to_parquet(result_file)
 
         return result_file
+
     @task(
         email_on_failure=True,
         email_on_retry=False,
-        email=['Nadine.ElSokily@Andalusiagroup.net']
+        email=["Nadine.ElSokily@Andalusiagroup.net"],
     )
     def load(db_configs, result_file):
         result_df = pd.read_parquet(result_file)
         update_table(db_configs["BI_READ"], "Final_Diagnosis", result_df)
+
     @task
     def cleanup_files(extracted_data, transformed_data):
         """Clean up the extracted data file"""
@@ -288,7 +316,7 @@ def final_diagnosis_etl_pipeline():
             if extracted_data and os.path.exists(extracted_data):
                 os.remove(extracted_data)
                 print(f"Cleaned up extraction file: {extracted_data}")
-                
+
             if transformed_data and os.path.exists(transformed_data):
                 os.remove(transformed_data)
                 print(f"Cleaned up transformed file: {transformed_data}")
@@ -320,5 +348,6 @@ def final_diagnosis_etl_pipeline():
     t2 >> l2 >> cleanup_files(df2, t2)
     t3 >> l3 >> cleanup_files(df3, t3)
     t4 >> l4 >> cleanup_files(df4, t4)
+
 
 dag = final_diagnosis_etl_pipeline()

@@ -18,15 +18,27 @@ import logging
 from typing import Dict, Any, Optional
 import hashlib
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.utils import Iqama_table, get_conn_engine, map_row, change_date, send_json_to_api, create_json_payload, extract_code, extract_outcome, extract_note, update_table
+from src.utils import (
+    Iqama_table,
+    get_conn_engine,
+    map_row,
+    change_date,
+    send_json_to_api,
+    create_json_payload,
+    extract_code,
+    extract_outcome,
+    extract_note,
+    update_table,
+)
 
-CAIRO_TZ = pendulum.timezone('Africa/Cairo')
+CAIRO_TZ = pendulum.timezone("Africa/Cairo")
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 def failure_callback(context):
     """Enhanced failure callback with SMTP email sending"""
@@ -34,13 +46,19 @@ def failure_callback(context):
         dag_run = context.get("dag_run")
         task_instance = context.get("task_instance")
         exception = context.get("exception")
-        execution_date = context.get('execution_date')
-        
+        execution_date = context.get("execution_date")
+
         # Format execution date properly
-        exec_date_str = execution_date.strftime('%Y-%m-%d %H:%M:%S') if execution_date else 'Unknown'
-        
-        subject = f"[AIRFLOW FAILURE] DAG: {dag_run.dag_id} - Task: {task_instance.task_id}"
-        
+        exec_date_str = (
+            execution_date.strftime("%Y-%m-%d %H:%M:%S")
+            if execution_date
+            else "Unknown"
+        )
+
+        subject = (
+            f"[AIRFLOW FAILURE] DAG: {dag_run.dag_id} - Task: {task_instance.task_id}"
+        )
+
         html_body = f"""
         <html>
         <body>
@@ -76,64 +94,68 @@ def failure_callback(context):
         </body>
         </html>
         """
-        
+
         # List of recipients
         recipients = [
-            'Mohamed.Reda@Andalusiagroup.net',
-            'Omar.Wafy@Andalusiagroup.net',
-            'Asmaa.Awad@Andalusiagroup.net',
-            'Andrew.Alfy@Andalusiagroup.net',
-            'Shehata.Amr@Andalusiagroup.net',
+            "Mohamed.Reda@Andalusiagroup.net",
+            "Omar.Wafy@Andalusiagroup.net",
+            "Asmaa.Awad@Andalusiagroup.net",
+            "Andrew.Alfy@Andalusiagroup.net",
+            "Shehata.Amr@Andalusiagroup.net",
         ]
 
         # Send email using SMTP
         try:
             print("Sending failure notification via SMTP...")
-            server = smtplib.SMTP('aws-ex-07.andalusia.loc', 25)
+            server = smtplib.SMTP("aws-ex-07.andalusia.loc", 25)
             server.set_debuglevel(1)
             server.starttls()
-            
+
             # Create message
             msg = MIMEMultipart()
-            msg['From'] = 'ai-service@andalusiagroup.net'
-            msg['To'] = ', '.join(recipients)
-            msg['Subject'] = subject
-            msg.attach(MIMEText(html_body, 'html'))
-            
+            msg["From"] = "ai-service@andalusiagroup.net"
+            msg["To"] = ", ".join(recipients)
+            msg["Subject"] = subject
+            msg.attach(MIMEText(html_body, "html"))
+
             # Send without authentication
             server.send_message(msg)
             server.quit()
             print("✅ Failure notification sent successfully!")
-            
+
         except Exception as smtp_error:
             print(f"❌ Failed to send failure notification via SMTP: {smtp_error}")
-            
+
     except Exception as e:
         print(f"Failed to process failure notification: {str(e)}")
 
+
 # Enhanced default args with better retry strategy
 default_args = {
-    'owner': 'airflow',
-    'depends_on_past': False,
-    'retries': 3,
-    'retry_delay': timedelta(minutes=5),
-    'email_on_failure': True,
-    'email_on_retry': False,
-    'email_on_success': False,
-    'email': ['Mohamed.Reda@Andalusiagroup.net',
-              'Omar.Wafy@Andalusiagroup.net',
-              'Asmaa.Awad@Andalusiagroup.net',
-              'Andrew.Alfy@Andalusiagroup.net',
-              'Shehata.Amr@Andalusiagroup.net',],
-    'on_failure_callback': failure_callback,
-    'execution_timeout': timedelta(hours=1),  # Global timeout for all tasks
+    "owner": "airflow",
+    "depends_on_past": False,
+    "retries": 3,
+    "retry_delay": timedelta(minutes=5),
+    "email_on_failure": True,
+    "email_on_retry": False,
+    "email_on_success": False,
+    "email": [
+        "Mohamed.Reda@Andalusiagroup.net",
+        "Omar.Wafy@Andalusiagroup.net",
+        "Asmaa.Awad@Andalusiagroup.net",
+        "Andrew.Alfy@Andalusiagroup.net",
+        "Shehata.Amr@Andalusiagroup.net",
+    ],
+    "on_failure_callback": failure_callback,
+    "execution_timeout": timedelta(hours=1),  # Global timeout for all tasks
 }
+
 
 @dag(
     dag_id="eligibility_job_enhanced",
     default_args=default_args,
     start_date=pendulum.now(CAIRO_TZ).subtract(days=1),
-    schedule_interval='0 */4 * * *',  # Every 4 hours
+    schedule_interval="0 */4 * * *",  # Every 4 hours
     catchup=True,  # Enable catchup to handle missed runs
     tags=["eligibility", "dotcare", "parallel", "enhanced"],
     max_active_runs=1,
@@ -147,7 +169,7 @@ def eligibility_etl_enhanced():
         """Extract data with 30-minute overlap to prevent gaps"""
         try:
             source = "LIVE"
-            
+
             # Enhanced SQL query with overlap
             enhanced_query = """
             SELECT   
@@ -218,39 +240,43 @@ def eligibility_etl_enhanced():
                 AND CONVERT(DATETIME, V.CreatedDate) >= DATEADD(MINUTE, -270, GETDATE())  -- 4.5 hours with 30-minute overlap
             ORDER BY V.CreatedDate ASC
             """
-            
+
             current_time = datetime.now()
             engine = get_conn_engine(source=source)
-            
+
             try:
                 with engine.connect() as conn:
                     result = conn.execute(text(enhanced_query))
                     df = pd.DataFrame(result.fetchall(), columns=result.keys())
             finally:
                 engine.dispose()
-            
+
             if df.empty:
                 print("No new data to process.")
                 return None
-            
+
             # Remove duplicates based on visit_id (keep latest)
             original_count = len(df)
-            df = df.drop_duplicates(subset=['visit_id'], keep='last').reset_index(drop=True)
-            
-            print(f"Extracted {original_count} records, {len(df)} unique records after deduplication")
-            
+            df = df.drop_duplicates(subset=["visit_id"], keep="last").reset_index(
+                drop=True
+            )
+
+            print(
+                f"Extracted {original_count} records, {len(df)} unique records after deduplication"
+            )
+
             # Save to file for parallel processing
-            timestamp = current_time.strftime('%Y%m%d_%H%M%S')
+            timestamp = current_time.strftime("%Y%m%d_%H%M%S")
             temp_file = f"/tmp/extracted_data_{timestamp}.parquet"
             df.to_parquet(temp_file)
-            
+
             return {
-                'file_path': temp_file,
-                'record_count': len(df),
-                'original_count': original_count,
-                'duplicates_removed': original_count - len(df)
+                "file_path": temp_file,
+                "record_count": len(df),
+                "original_count": original_count,
+                "duplicates_removed": original_count - len(df),
             }
-            
+
         except Exception as e:
             print(f"Error in extract_data_with_overlap: {str(e)}")
             raise
@@ -261,27 +287,26 @@ def eligibility_etl_enhanced():
         try:
             if not extraction_info:
                 return None
-                
-            df = pd.read_parquet(extraction_info['file_path'])
+
+            df = pd.read_parquet(extraction_info["file_path"])
             print(f"Processing {len(df)} records for Iqama transformation")
-            
+
             # Apply transformations
-            df_iqama = df.apply(map_row, axis=1).drop_duplicates().reset_index(drop=True)
-            df_iqama = df_iqama.drop_duplicates(keep='last').reset_index(drop=True)
-            
+            df_iqama = (
+                df.apply(map_row, axis=1).drop_duplicates().reset_index(drop=True)
+            )
+            df_iqama = df_iqama.drop_duplicates(keep="last").reset_index(drop=True)
+
             result_df = Iqama_table(df_iqama)
-            result_df['Insertion_Date'] = datetime.now().strftime('%Y-%m-%d %H:%M')
-            
+            result_df["Insertion_Date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+
             # Save transformed data to file
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_file = f"/tmp/iqama_transformed_{timestamp}.parquet"
             result_df.to_parquet(output_file)
-            
-            return {
-                'file_path': output_file,
-                'record_count': len(result_df)
-            }
-            
+
+            return {"file_path": output_file, "record_count": len(result_df)}
+
         except Exception as e:
             print(f"Error in transform_iqama: {str(e)}")
             raise
@@ -292,10 +317,10 @@ def eligibility_etl_enhanced():
         try:
             if not extraction_info:
                 return None
-                
-            df = pd.read_parquet(extraction_info['file_path'])
+
+            df = pd.read_parquet(extraction_info["file_path"])
             print(f"Processing {len(df)} records for Eligibility transformation")
-            
+
             # Apply date transformations
             df["start_date"] = df["start_date"].astype(str).apply(change_date)
             df["end_date"] = df["end_date"].astype(str).apply(change_date)
@@ -304,36 +329,42 @@ def eligibility_etl_enhanced():
             # Process API requests with progress bar
             tqdm.pandas(desc="API Requests")
             df["elgability_response"] = df.progress_apply(
-                lambda row: send_json_to_api(create_json_payload(row, source="AHJ_DOT-CARE")),
-                axis=1
+                lambda row: send_json_to_api(
+                    create_json_payload(row, source="AHJ_DOT-CARE")
+                ),
+                axis=1,
             )
 
             # Extract response data
             df["class"] = df["elgability_response"].apply(extract_code)
             df["outcome"] = df["elgability_response"].apply(extract_outcome)
             df["note"] = df["elgability_response"].apply(extract_note)
-            df["insertion_date"] = datetime.now().strftime('%Y-%m-%d %H:%M')
+            df["insertion_date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
 
             # Apply business rules
-            df.loc[(df["note"] == "1680 ") & (df["class"].isna()), "class"] = "out-network"
-            df.loc[(df["note"] == "1658 ") & (df["class"].isna()), "class"] = "not-active"
-            
-            null_outcomes = df['outcome'].isna().sum()
+            df.loc[(df["note"] == "1680 ") & (df["class"].isna()), "class"] = (
+                "out-network"
+            )
+            df.loc[(df["note"] == "1658 ") & (df["class"].isna()), "class"] = (
+                "not-active"
+            )
+
+            null_outcomes = df["outcome"].isna().sum()
             print(f"The number of null outcomes: {null_outcomes}")
 
             final_df = df[["visit_id", "outcome", "note", "class", "insertion_date"]]
-            
+
             # Save transformed data to file
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_file = f"/tmp/eligibility_transformed_{timestamp}.parquet"
             final_df.to_parquet(output_file)
-            
+
             return {
-                'file_path': output_file,
-                'record_count': len(final_df),
-                'null_outcomes': null_outcomes
+                "file_path": output_file,
+                "record_count": len(final_df),
+                "null_outcomes": null_outcomes,
             }
-            
+
         except Exception as e:
             print(f"Error in transform_eligibility: {str(e)}")
             raise
@@ -345,37 +376,39 @@ def eligibility_etl_enhanced():
             if not iqama_info and not eligibility_info:
                 print("No data to load")
                 return
-            
-            timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
-            
+
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+
             # Create output directory
             os.makedirs("data/DOT-CARE", exist_ok=True)
-            
+
             load_summary = {
-                'timestamp': timestamp,
-                'iqama_loaded': 0,
-                'eligibility_loaded': 0
+                "timestamp": timestamp,
+                "iqama_loaded": 0,
+                "eligibility_loaded": 0,
             }
-            
+
             # Process Iqama data
             if iqama_info:
-                iqama_df = pd.read_parquet(iqama_info['file_path'])
+                iqama_df = pd.read_parquet(iqama_info["file_path"])
                 iqama_df.to_csv(f"data/DOT-CARE/iqama_{timestamp}.csv", index=False)
                 update_table(table_name="Iqama_dotcare", df=iqama_df)
-                load_summary['iqama_loaded'] = len(iqama_df)
+                load_summary["iqama_loaded"] = len(iqama_df)
                 print(f"Loaded {len(iqama_df)} Iqama records")
-            
+
             # Process Eligibility data
             if eligibility_info:
-                eligibility_df = pd.read_parquet(eligibility_info['file_path'])
-                eligibility_df.to_csv(f"data/DOT-CARE/eligibilty_{timestamp}.csv", index=False)
+                eligibility_df = pd.read_parquet(eligibility_info["file_path"])
+                eligibility_df.to_csv(
+                    f"data/DOT-CARE/eligibilty_{timestamp}.csv", index=False
+                )
                 update_table(table_name="Eligibility_dotcare", df=eligibility_df)
-                load_summary['eligibility_loaded'] = len(eligibility_df)
+                load_summary["eligibility_loaded"] = len(eligibility_df)
                 print(f"Loaded {len(eligibility_df)} Eligibility records")
-            
+
             print(f"Load Summary: {load_summary}")
             return load_summary
-                
+
         except Exception as e:
             print(f"Error in load_data: {str(e)}")
             raise
@@ -385,36 +418,37 @@ def eligibility_etl_enhanced():
         """Clean up temporary files"""
         try:
             files_to_clean = []
-            
-            if extraction_info and extraction_info.get('file_path'):
-                files_to_clean.append(extraction_info['file_path'])
-            if eligibility_info and eligibility_info.get('file_path'):
-                files_to_clean.append(eligibility_info['file_path'])
-            if iqama_info and iqama_info.get('file_path'):
-                files_to_clean.append(iqama_info['file_path'])
-            
+
+            if extraction_info and extraction_info.get("file_path"):
+                files_to_clean.append(extraction_info["file_path"])
+            if eligibility_info and eligibility_info.get("file_path"):
+                files_to_clean.append(eligibility_info["file_path"])
+            if iqama_info and iqama_info.get("file_path"):
+                files_to_clean.append(iqama_info["file_path"])
+
             for file_path in files_to_clean:
                 if os.path.exists(file_path):
                     os.remove(file_path)
                     print(f"Cleaned up file: {file_path}")
-                    
+
         except Exception as e:
             print(f"Error cleaning up files: {str(e)}")
 
     # DAG flow
     extracted = extract_data_with_overlap()
-    
+
     # Parallel transforms
     iqama_transformed = transform_iqama(extracted)
     eligibility_transformed = transform_eligibility(extracted)
-    
+
     # Load data
     loaded = load_data(iqama_transformed, eligibility_transformed)
-    
+
     # Cleanup
     cleanup_task = cleanup_files(extracted, iqama_transformed, eligibility_transformed)
-    
+
     # Set dependencies
     loaded >> cleanup_task
+
 
 dag = eligibility_etl_enhanced()

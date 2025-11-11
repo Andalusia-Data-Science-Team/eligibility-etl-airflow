@@ -3,6 +3,7 @@ from __future__ import annotations
 import streamlit as st
 from datetime import date
 
+
 def visit_filters():
     with st.expander("Filters", expanded=True):
         col1, col2, col3 = st.columns(3)
@@ -20,7 +21,8 @@ def visit_filters():
             end = st.date_input("End date", value=None)
 
         classification = st.multiselect(
-            "Visit Classification", ["Inpatient", "Outpatient", "Emergency", "Ambulatory"]
+            "Visit Classification",
+            ["Inpatient", "Outpatient", "Emergency", "Ambulatory"],
         )
 
     return {

@@ -15,7 +15,7 @@ import sys
 import pandas as pd
 import logging
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src.llm_utils import read_data, update_table
 from src.resubmission import transform_loop
 
@@ -32,7 +32,7 @@ live_passcode = db_configs["Replica"]
 with open(Path("sql") / "resubmission.sql", "r") as file:
     query = file.read()
 
-CAIRO_TZ = pendulum.timezone('Africa/Cairo')
+CAIRO_TZ = pendulum.timezone("Africa/Cairo")
 
 
 def failure_callback(context):
@@ -41,14 +41,20 @@ def failure_callback(context):
         dag_run = context.get("dag_run")
         task_instance = context.get("task_instance")
         exception = context.get("exception")
-        execution_date = context.get('execution_date')
-        
+        execution_date = context.get("execution_date")
+
         # Format execution date properly
-        exec_date_str = execution_date.strftime('%Y-%m-%d %H:%M:%S') if execution_date else 'Unknown'
-        
-        subject = f"[Airflow FAILURE] DAG: {dag_run.dag_id} - Task: {task_instance.task_id}"
+        exec_date_str = (
+            execution_date.strftime("%Y-%m-%d %H:%M:%S")
+            if execution_date
+            else "Unknown"
+        )
+
+        subject = (
+            f"[Airflow FAILURE] DAG: {dag_run.dag_id} - Task: {task_instance.task_id}"
+        )
         log_url = f"http://10.24.105.221:8080/log?dag_id={dag_run.dag_id}&task_id={task_instance.task_id}&execution_date={execution_date.isoformat()}"
-        
+
         # Create a more detailed HTML email body
         html_body = f"""
         <html>
@@ -85,44 +91,46 @@ def failure_callback(context):
         </body>
         </html>
         """
-        
+
         # List of recipients
         recipients = [
-            'Nadine.ElSokily@Andalusiagroup.net',
+            "Nadine.ElSokily@Andalusiagroup.net",
         ]
 
         # Send email using SMTP
         try:
             print("Sending failure notification via SMTP...")
-            server = smtplib.SMTP('aws-ex-07.andalusia.loc', 25)
+            server = smtplib.SMTP("aws-ex-07.andalusia.loc", 25)
             server.set_debuglevel(1)
             server.starttls()
-            
+
             # Create message
             msg = MIMEMultipart()
-            msg['From'] = 'ai-service@andalusiagroup.net'
-            msg['To'] = ', '.join(recipients)
-            msg['Subject'] = subject
-            msg.attach(MIMEText(html_body, 'html'))
-            
+            msg["From"] = "ai-service@andalusiagroup.net"
+            msg["To"] = ", ".join(recipients)
+            msg["Subject"] = subject
+            msg.attach(MIMEText(html_body, "html"))
+
             # Send without authentication
             server.send_message(msg)
             server.quit()
             print("✅ Failure notification sent successfully!")
-            
+
         except Exception as smtp_error:
             print(f"❌ Failed to send failure notification via SMTP: {smtp_error}")
             # Fall back to Airflow's send_email if SMTP fails
             try:
                 send_email(
-                    to=['Nadine.ElSokily@Andalusiagroup.net',],
+                    to=[
+                        "Nadine.ElSokily@Andalusiagroup.net",
+                    ],
                     subject=subject,
                     html_content=html_body,
                 )
                 print("Used fallback email method successfully")
             except Exception as fallback_error:
                 print(f"Failed to send email with fallback method: {fallback_error}")
-        
+
     except Exception as e:
         print(f"Failed to process failure notification: {str(e)}")
 
@@ -131,12 +139,16 @@ def success_callback(context):
     """Optional success callback"""
     try:
         dag_run = context.get("dag_run")
-        execution_date = context.get('execution_date')
-        
-        exec_date_str = execution_date.strftime('%Y-%m-%d %H:%M:%S') if execution_date else 'Unknown'
-        
+        execution_date = context.get("execution_date")
+
+        exec_date_str = (
+            execution_date.strftime("%Y-%m-%d %H:%M:%S")
+            if execution_date
+            else "Unknown"
+        )
+
         subject = f"[Airflow SUCCESS] DAG: {dag_run.dag_id} completed successfully"
-        
+
         html_body = f"""
         <html>
         <body>
@@ -164,33 +176,37 @@ def success_callback(context):
         </body>
         </html>
         """
-        
+
         send_email(
-            to=['Nadine.ElSokily@Andalusiagroup.net',],
+            to=[
+                "Nadine.ElSokily@Andalusiagroup.net",
+            ],
             subject=subject,
             html_content=html_body,
         )
         print("Success notification email sent")
-        
+
     except Exception as e:
         print(f"Failed to send success notification email: {str(e)}")
 
 
 # Enhanced default args with anonymous SMTP configuration
 default_args = {
-    'owner': 'airflow',
-    'depends_on_past': False,
-    'retries': 1,
-    'retry_delay': timedelta(minutes=3),
-    'email_on_failure': True,
-    'email_on_retry': False,
-    'email_on_success': False,  # Set to True if you want success emails for individual tasks
-    'email': ['Mohamed.Reda@Andalusiagroup.net',
-              'Omar.Wafy@Andalusiagroup.net',
-              'Asmaa.Awad@Andalusiagroup.net',
-              'Andrew.Alfy@Andalusiagroup.net',
-              'Nadine.ElSokily@Andalusiagroup.net',],  # Default email list
-    'on_failure_callback': failure_callback,
+    "owner": "airflow",
+    "depends_on_past": False,
+    "retries": 1,
+    "retry_delay": timedelta(minutes=3),
+    "email_on_failure": True,
+    "email_on_retry": False,
+    "email_on_success": False,  # Set to True if you want success emails for individual tasks
+    "email": [
+        "Mohamed.Reda@Andalusiagroup.net",
+        "Omar.Wafy@Andalusiagroup.net",
+        "Asmaa.Awad@Andalusiagroup.net",
+        "Andrew.Alfy@Andalusiagroup.net",
+        "Nadine.ElSokily@Andalusiagroup.net",
+    ],  # Default email list
+    "on_failure_callback": failure_callback,
     # 'on_success_callback': success_callback,  # Uncomment if you want success emails
 }
 
@@ -206,29 +222,35 @@ default_args = {
     description="ETL pipeline for AHJ Claims Resubmission Copilot",
     # DAG-level email configuration
     params={
-        'email_on_dag_failure': True,
-        'notification_emails': ['Nadine.ElSokily@Andalusiagroup.net',]
-    }
+        "email_on_dag_failure": True,
+        "notification_emails": [
+            "Nadine.ElSokily@Andalusiagroup.net",
+        ],
+    },
 )
 def resubmission_etl_pipeline():
     @task(
         email_on_failure=True,
         email_on_retry=False,
-        email=['Mohamed.Reda@Andalusiagroup.net',
-               'Omar.Wafy@Andalusiagroup.net',
-               'Asmaa.Awad@Andalusiagroup.net',
-               'Andrew.Alfy@Andalusiagroup.net',
-               'Nadine.ElSokily@Andalusiagroup.net',]
+        email=[
+            "Mohamed.Reda@Andalusiagroup.net",
+            "Omar.Wafy@Andalusiagroup.net",
+            "Asmaa.Awad@Andalusiagroup.net",
+            "Andrew.Alfy@Andalusiagroup.net",
+            "Nadine.ElSokily@Andalusiagroup.net",
+        ],
     )
     def extract():
         try:
             df = read_data(query, live_passcode, logger)
             if df.empty:
-                raise AirflowSkipException("No data was found in live, quitting resubmission job")
+                raise AirflowSkipException(
+                    "No data was found in live, quitting resubmission job"
+                )
             # if df.empty:
             #     logger.debug("No data was found in replica")
             #     try:
-            #         df = read_data(query, live_passcode, logger)    
+            #         df = read_data(query, live_passcode, logger)
             #         if df.empty:
             #             raise AirflowSkipException("No data was found in live, quitting resubmission job")
             #     except Exception as e:
@@ -237,34 +259,37 @@ def resubmission_etl_pipeline():
             logger.debug(e)
             # df = read_data(query, live_passcode, logger)
 
-        df = df.drop_duplicates(keep='last')
-        df = df.loc[df['VisitClassificationEnName']!='Ambulatory']
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        df = df.drop_duplicates(keep="last")
+        df = df.loc[df["VisitClassificationEnName"] != "Ambulatory"]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         temp = f"/tmp/extracted_resubmission_{timestamp}.parquet"
         df.to_parquet(temp)
         return temp
+
     @task(
         email_on_failure=True,
         email_on_retry=False,
-        email=['Nadine.ElSokily@Andalusiagroup.net']
+        email=["Nadine.ElSokily@Andalusiagroup.net"],
     )
     def transform(extracted_data):
         extracted_data = pd.read_parquet(extracted_data)
         result_df = transform_loop(extracted_data, logger)
-    
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         result_file = f"/tmp/result_resubmission.parquet"
         result_df.to_parquet(result_file)
 
         return result_file
+
     @task(
         email_on_failure=True,
         email_on_retry=False,
-        email=['Nadine.ElSokily@Andalusiagroup.net']
+        email=["Nadine.ElSokily@Andalusiagroup.net"],
     )
     def load(result_file):
         result_df = pd.read_parquet(result_file)
         update_table(write_passcode, "Resubmission_Copilot", result_df, logger)
+
     @task
     def cleanup_files(extracted_data, transformed_data):
         """Clean up the extracted data file"""
@@ -272,7 +297,7 @@ def resubmission_etl_pipeline():
             if extracted_data and os.path.exists(extracted_data):
                 os.remove(extracted_data)
                 logger.info(f"Cleaned up extraction file: {extracted_data}")
-                
+
             if transformed_data and os.path.exists(transformed_data):
                 os.remove(transformed_data)
                 logger.info(f"Cleaned up transformed file: {transformed_data}")
@@ -287,5 +312,6 @@ def resubmission_etl_pipeline():
     l = load(t)
 
     t >> l >> cleanup_files(df, t)
+
 
 dag = resubmission_etl_pipeline()

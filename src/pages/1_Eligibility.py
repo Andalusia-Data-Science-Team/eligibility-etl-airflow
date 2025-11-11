@@ -9,6 +9,7 @@ import streamlit as st
 # ---------------- Page Setup ----------------
 st.set_page_config(page_title="Eligibility Viewer", page_icon="💊", layout="wide")
 
+
 # ---------- Locate logo & build data URI ----------
 def _resolve_logo() -> Path:
     here = Path(__file__).resolve().parent
@@ -22,24 +23,36 @@ def _resolve_logo() -> Path:
             return p
     return None
 
+
 def _to_data_uri(p: Path) -> str:
     b64 = base64.b64encode(p.read_bytes()).decode("utf-8")
     return f"data:image/png;base64,{b64}"
 
+
 _LOGO_PATH = _resolve_logo()
 _LOGO_URI = _to_data_uri(_LOGO_PATH) if _LOGO_PATH else ""
 
-st.markdown("""
+st.markdown(
+    """
 <style>
 .header-logo img { max-width:170px; height:auto; mix-blend-mode:multiply; background-color:transparent!important; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ---------- Palette ----------
-PALETTE = {"bg":"#f8fafc","paper":"#f8f5f2","brand":"#7c4c24","brand_hover":"#9a6231","muted":"#64748b"}
+PALETTE = {
+    "bg": "#f8fafc",
+    "paper": "#f8f5f2",
+    "brand": "#7c4c24",
+    "brand_hover": "#9a6231",
+    "muted": "#64748b",
+}
 
 # ---------- CSS ----------
-st.markdown(f"""
+st.markdown(
+    f"""
 <style>
 html, body, [data-testid="stAppViewContainer"]{{background:{PALETTE['bg']};}}
 .block-container{{max-width:1280px; margin:0 auto;}}
@@ -66,7 +79,9 @@ html, body, [data-testid="stAppViewContainer"]{{background:{PALETTE['bg']};}}
 .kv-value{{color:#0f172a;}}
 .footer{{text-align:center;color:#94a3b8;margin-top:1.2rem;}}
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ---------- Header ----------
 st.markdown(
@@ -83,8 +98,13 @@ st.markdown('<p class="subhead">Pick a Visit ID</p>', unsafe_allow_html=True)
 
 # ---------------- Paths ----------------
 HERE = Path(__file__).resolve()
-ROOT = HERE.parents[2] if (HERE.parent.name == "pages" and HERE.parents[1].name == "src") else HERE.parents[1]
+ROOT = (
+    HERE.parents[2]
+    if (HERE.parent.name == "pages" and HERE.parents[1].name == "src")
+    else HERE.parents[1]
+)
 DATA_CSV = ROOT / "data" / "eligibility_history.csv"
+
 
 # ---------------- Load Data (robust to encoding) ----------------
 @st.cache_data(show_spinner=False)
@@ -96,7 +116,13 @@ def load_data(csv_path: Path) -> pd.DataFrame:
     df = None
     for enc in ("utf-8", "utf-8-sig", "cp1252", "latin1"):
         try:
-            df = pd.read_csv(csv_path, dtype=str, keep_default_na=False, encoding=enc, on_bad_lines="skip")
+            df = pd.read_csv(
+                csv_path,
+                dtype=str,
+                keep_default_na=False,
+                encoding=enc,
+                on_bad_lines="skip",
+            )
             break
         except Exception:
             continue
@@ -109,7 +135,9 @@ def load_data(csv_path: Path) -> pd.DataFrame:
     df.columns = [c.lower() for c in df.columns]
     return df
 
+
 df = load_data(DATA_CSV)
+
 
 # ---------------- Small helper: safe pick from row ----------------
 def _pick(row: pd.Series, candidates, default: str = "") -> str:
@@ -130,6 +158,7 @@ def _pick(row: pd.Series, candidates, default: str = "") -> str:
                 if val is not None and str(val).strip() != "":
                     return str(val)
     return default
+
 
 # ---------------- Status helpers ----------------
 def _status_from_row(class_val, note_val) -> str:
@@ -152,16 +181,47 @@ def _status_from_row(class_val, note_val) -> str:
 
     if has("suspend"):
         return "coverage-suspended"
-    if has("out of network", "out-of-network", "out network", "o.o.n", "oon", "out-network"):
+    if has(
+        "out of network", "out-of-network", "out network", "o.o.n", "oon", "out-network"
+    ):
         return "out-network"
-    if has("not covered", "no coverage", "no-cover", "not-cover", "benefit not", "exceeded limit", "benefit exhausted"):
+    if has(
+        "not covered",
+        "no coverage",
+        "no-cover",
+        "not-cover",
+        "benefit not",
+        "exceeded limit",
+        "benefit exhausted",
+    ):
         return "not-covered"
-    if has("not active", "inactive", "terminated", "expired", "blocked", "cancelled", "canceled", "denied", "rejected"):
+    if has(
+        "not active",
+        "inactive",
+        "terminated",
+        "expired",
+        "blocked",
+        "cancelled",
+        "canceled",
+        "denied",
+        "rejected",
+    ):
         return "not-active"
-    if has("eligible", "active", "approved", "authorized", "authorised", "covered", "valid", "in network", "in-network"):
+    if has(
+        "eligible",
+        "active",
+        "approved",
+        "authorized",
+        "authorised",
+        "covered",
+        "valid",
+        "in network",
+        "in-network",
+    ):
         return "eligible"
 
     return "not-active"
+
 
 def _badge_from_status(status: str) -> str:
     s = (status or "").strip().lower()
@@ -180,6 +240,7 @@ def _badge_from_status(status: str) -> str:
         "not-active": "Not active",
     }
     return f'<span class="badge {cls_map.get(s, "badge-err")}">{label_map.get(s, "Not active")}</span>'
+
 
 # ---------------- Controls ----------------
 visit_ids = sorted(df["visit_id"].astype(str).unique().tolist())
@@ -210,7 +271,7 @@ if not record.empty:
     row = record.iloc[0]
 
     class_val = _pick(row, ["class", "eligibility_status", "status"])
-    note_val  = _pick(row, ["note", "eligibility_note"])
+    note_val = _pick(row, ["note", "eligibility_note"])
     status = _status_from_row(class_val, note_val)
 
     st.markdown(
@@ -239,7 +300,7 @@ if not record.empty:
         """,
         unsafe_allow_html=True,
     )
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 else:
     st.warning("No record found for this Visit ID.")
 

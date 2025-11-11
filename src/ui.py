@@ -5,41 +5,37 @@ import streamlit as st
 # ------------------------ Brand + Medical Palette ------------------------
 TOKENS = {
     # Surface & text
-    "bg": "#f7fafc",           # canvas
-    "paper": "#ffffff",        # cards
-    "ink": "#0f172a",          # headings
-    "muted_ink": "#475569",    # body
-
+    "bg": "#f7fafc",  # canvas
+    "paper": "#ffffff",  # cards
+    "ink": "#0f172a",  # headings
+    "muted_ink": "#475569",  # body
     # Andalusia accents (used subtly)
     "brand_brown": "#7c4c24",
     "brand_brown_2": "#B87c4c",
     "brand_tint": "#EBD9D1",
-
     # Functional/medical semantics
-    "primary": "#2563eb",      # solid actions (blue-600)
+    "primary": "#2563eb",  # solid actions (blue-600)
     "primary_hover": "#1d4ed8",
     "primary_soft": "#e0ecff",
-
     "success_bg": "#e8f7ee",
     "success_fg": "#166534",
     "success_bd": "#34d399",
-
     "warn_bg": "#fff7e6",
     "warn_fg": "#7c2d12",
     "warn_bd": "#fbbf24",
-
     "error_bg": "#feecec",
     "error_fg": "#7f1d1d",
     "error_bd": "#f87171",
-
     "neutral_bd": "rgba(15, 23, 42, .06)",
     "shadow_sm": "0 1px 3px rgba(16,24,40,.08)",
     "shadow_md": "0 6px 24px rgba(2,6,23,.08)",
-    "focus": "#93c5fd"         # focus ring
+    "focus": "#93c5fd",  # focus ring
 }
+
 
 def _css_vars():
     return ";".join([f"--{k}:{v}" for k, v in TOKENS.items()])
+
 
 # ------------------------ Global Theme Injection ------------------------
 def inject_theme():
@@ -207,7 +203,7 @@ section.main [data-testid="stTextInput"] > label:empty + div {{ display: none !i
     )
 
     st.markdown(
-    """
+        """
     <script>
     (function () {
       function hideEmptyCards() {
@@ -230,14 +226,16 @@ section.main [data-testid="stTextInput"] > label:empty + div {{ display: none !i
     })();
     </script>
     """,
-    unsafe_allow_html=True,
-)
+        unsafe_allow_html=True,
+    )
+
 
 # ------------------------ Page Setup ------------------------
 def setup_page(title: str, icon_path: str = "assets/your_company_logo.png"):
     # Use the logo as favicon/page icon
     st.set_page_config(page_title=title, page_icon=icon_path, layout="wide")
     inject_theme()
+
 
 # ------------------------ Header with logo on RIGHT ------------------------
 def app_header(
@@ -271,12 +269,16 @@ def app_header(
             st.image(logo_path, width=logo_width)
         st.markdown("</div>", unsafe_allow_html=True)
 
+
 # ------------------------ Sidebar Navigation (single system) ------------------------
 def sidebar_nav(active: str):
     with st.sidebar:
-        st.markdown('<div class="sb-logo" style="text-align:center;margin:.25rem 0 1rem">', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="sb-logo" style="text-align:center;margin:.25rem 0 1rem">',
+            unsafe_allow_html=True,
+        )
         st.image("assets/your_company_logo.png", use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown('<div class="sb-card">', unsafe_allow_html=True)
         items = [
@@ -285,7 +287,7 @@ def sidebar_nav(active: str):
             ("Resubmission", "📤", "pages/3_Resubmission.py"),
         ]
         for label, emoji, path in items:
-            is_active = (label == active)
+            is_active = label == active
             st.markdown(
                 f'<div class="sb-item {"active" if is_active else ""}">'
                 f'<span class="icon-pill icon-search">{emoji}</span>{label}</div>',
@@ -294,17 +296,26 @@ def sidebar_nav(active: str):
             if not is_active:
                 if st.button(f"Open {label}", key=f"nav-{label}"):
                     st.switch_page(path)
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
 
 # ------------------------ Small HTML helpers ------------------------
-def open_card(): st.markdown('<div class="card">', unsafe_allow_html=True)
-def close_card(): st.markdown('</div>', unsafe_allow_html=True)
+def open_card():
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+
+
+def close_card():
+    st.markdown("</div>", unsafe_allow_html=True)
+
 
 def status_badge(status: str) -> str:
     m = {
-        "eligible": "badge-ok", "success": "badge-ok",
-        "warning": "badge-warn", "out_of_network": "badge-warn",
-        "not_active": "badge-err", "error": "badge-err"
+        "eligible": "badge-ok",
+        "success": "badge-ok",
+        "warning": "badge-warn",
+        "out_of_network": "badge-warn",
+        "not_active": "badge-err",
+        "error": "badge-err",
     }
     cls = m.get(status.lower(), "badge")
     label = status.replace("_", " ").title()

@@ -36,6 +36,7 @@ from src.AHJ_Claims import make_preds
 # ---------------- Page Setup ----------------
 st.set_page_config(page_title="Predictions", page_icon="💊", layout="wide")
 
+
 # ---------- Locate logo ----------
 def _resolve_logo() -> Path:
     here = Path(__file__).resolve().parent
@@ -49,14 +50,17 @@ def _resolve_logo() -> Path:
             return p
     return None
 
+
 def _to_data_uri(p: Path) -> str:
     b64 = base64.b64encode(p.read_bytes()).decode("utf-8")
     return f"data:image/png;base64,{b64}"
 
+
 _LOGO_PATH = _resolve_logo()
 _LOGO_URI = _to_data_uri(_LOGO_PATH) if _LOGO_PATH else ""
 
-st.markdown("""
+st.markdown(
+    """
 <style>
 .header-logo img {
     max-width: 170px;
@@ -65,13 +69,15 @@ st.markdown("""
     background-color: transparent !important;
 }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ---------- Palette ----------
 PALETTE = {
     "bg": "#f8fafc",
     "paper": "#f8f5f2",
-    "brand": "#7c4c24",      # Andalusia brown
+    "brand": "#7c4c24",  # Andalusia brown
     "brand_hover": "#9a6231",
     "muted": "#64748b",
 }
@@ -192,7 +198,11 @@ st.markdown(
 
 # ---------- Paths ----------
 HERE = Path(__file__).resolve()
-ROOT = HERE.parents[2] if (HERE.parent.name == "pages" and HERE.parents[1].name == "src") else HERE.parents[1]
+ROOT = (
+    HERE.parents[2]
+    if (HERE.parent.name == "pages" and HERE.parents[1].name == "src")
+    else HERE.parents[1]
+)
 SQL_DIR = ROOT / "sql"
 DATA_DIR = ROOT / "data"
 
@@ -201,6 +211,7 @@ HIST_CSV_CANDIDATES = [
     DATA_DIR / "data/history_service_names.csv",
     DATA_DIR / "history_service_names.csv",
 ]
+
 
 def load_history_csv() -> Optional[pd.DataFrame]:
     for p in HIST_CSV_CANDIDATES:
@@ -214,12 +225,14 @@ def load_history_csv() -> Optional[pd.DataFrame]:
                 return None
     return None
 
+
 def network_issue_box(where: str):
     st.warning(
         f"⚠️ We couldn’t reach the {where} database right now. "
         f"This is often a temporary network or timeout issue.\n\n"
         f"→ Falling back to a local snapshot CSV if available."
     )
+
 
 # ---------- TABS ----------
 tab_history, tab_predict, tab_live = st.tabs(
@@ -231,10 +244,14 @@ with tab_history:
     st.caption("View previous prediction results (from local CSV snapshot).")
     c1, c2 = st.columns([1.5, 1])
     with c1:
-        visit_filter = st.text_input("Filter by Visit ID (optional)", placeholder="e.g., 715397")
+        visit_filter = st.text_input(
+            "Filter by Visit ID (optional)", placeholder="e.g., 715397"
+        )
     with c2:
-        limit_rows = st.number_input("Max rows", min_value=100, max_value=100000, value=100)
-    st.markdown('</div>', unsafe_allow_html=True)
+        limit_rows = st.number_input(
+            "Max rows", min_value=100, max_value=100000, value=100
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
 
     if st.button("Load Predictions", key="btn_hist"):
         # Always load from CSV
@@ -247,7 +264,10 @@ with tab_history:
             cols_lower = [c.lower() for c in df.columns]
             if "visitid" not in cols_lower and "visit_id" in cols_lower:
                 df.rename(columns={"visit_id": "VisitID"}, inplace=True)
-            if "medical_prediction" not in cols_lower and "Medical_Prediction" in df.columns:
+            if (
+                "medical_prediction" not in cols_lower
+                and "Medical_Prediction" in df.columns
+            ):
                 pass
             elif "prediction" in cols_lower:
                 df.rename(columns={"prediction": "Medical_Prediction"}, inplace=True)
@@ -262,20 +282,34 @@ with tab_history:
             if df.empty:
                 info_box("No history rows matched your filters.")
             else:
-                rejected = (df["Medical_Prediction"] == "Rejected").sum() if "Medical_Prediction" in df.columns else 0
+                rejected = (
+                    (df["Medical_Prediction"] == "Rejected").sum()
+                    if "Medical_Prediction" in df.columns
+                    else 0
+                )
                 total = len(df)
-                kpi_row([("History rows", total), ("Rejected", rejected), ("Approved", total - rejected)])
+                kpi_row(
+                    [
+                        ("History rows", total),
+                        ("Rejected", rejected),
+                        ("Approved", total - rejected),
+                    ]
+                )
                 st.dataframe(df, use_container_width=True)
                 st.caption("Showing local CSV snapshot.")
-                
+
 # === PREDICT ONE ===
 with tab_predict:
-    st.caption("Generate a new prediction for a Visit ID. Falls back to local snapshot if Replica is unavailable.")
+    st.caption(
+        "Generate a new prediction for a Visit ID. Falls back to local snapshot if Replica is unavailable."
+    )
 
     # Input only (no 'show source' checkbox)
     vcol = st.columns([3])[0]
     with vcol:
-        visit_id = st.text_input("Visit ID (required)", placeholder="Enter a Visit ID to score")
+        visit_id = st.text_input(
+            "Visit ID (required)", placeholder="Enter a Visit ID to score"
+        )
 
     if st.button("Run predictions now", key="btn_predict"):
         if not visit_id.strip():
@@ -284,7 +318,9 @@ with tab_predict:
             params = {"vid": visit_id.strip()}
             try:
                 with st.spinner("Loading visit data..."):
-                    src = read_sql("REPLICA", """
+                    src = read_sql(
+                        "REPLICA",
+                        """
 SELECT DISTINCT
     VS.VisitID, VC.EnName AS Visit_Type, V.MainSpecialityEnName AS PROVIDER_DEPARTMENT,
     G.EnName AS PATIENT_GENDER, DATEDIFF(YEAR, PA.DateOfBirth, GETDATE()) AS AGE,VS.id as VisitServiceID,
@@ -316,7 +352,9 @@ LEFT JOIN (
 ) AS SAS ON VS.VISITID = SAS.VISITID
 WHERE V.VisitStatusID != 3 AND VC.EnName != 'Ambulatory' AND VS.IsDeleted = 0
   AND VS.CompanyShare > 0 AND VFI.ContractTypeID = 1 AND VS.VisitID = :vid
-""", params)
+""",
+                        params,
+                    )
 
                 if src.empty:
                     info_box(f"No rows found on Replica for VisitID {visit_id}.")
@@ -327,13 +365,17 @@ WHERE V.VisitStatusID != 3 AND VC.EnName != 'Ambulatory' AND VS.IsDeleted = 0
                     if history_df is None or history_df.empty:
                         info_box("produced no rows.")
                     else:
-                        rejected = (history_df["Medical_Prediction"] == "Rejected").sum()
+                        rejected = (
+                            history_df["Medical_Prediction"] == "Rejected"
+                        ).sum()
                         total = len(history_df)
-                        kpi_row([
-                            ("Scored services", total),
-                            ("Rejected", rejected),
-                            ("Approved", total - rejected),
-                        ])
+                        kpi_row(
+                            [
+                                ("Scored services", total),
+                                ("Rejected", rejected),
+                                ("Approved", total - rejected),
+                            ]
+                        )
                         st.dataframe(history_df, use_container_width=True)
             except Exception:
                 network_issue_box("live")
@@ -374,26 +416,40 @@ with tab_live:
     if isinstance(live_df, pd.DataFrame) and not live_df.empty:
         # KPIs for context
         from src.components import kpi_row  # safe import
-        kpi_row([
-            ("Rows", len(live_df)),
-            ("Visits", live_df["VisitID"].nunique() if "VisitID" in live_df.columns else 0),
-        ])
+
+        kpi_row(
+            [
+                ("Rows", len(live_df)),
+                (
+                    "Visits",
+                    live_df["VisitID"].nunique() if "VisitID" in live_df.columns else 0,
+                ),
+            ]
+        )
 
         st.markdown("---")
 
         st.caption("Pick a Visit ID from the loaded window and run predictions on it.")
         select_col, persist_col = st.columns([2, 1])
         with select_col:
-            visit_choices = live_df["VisitID"].astype(str).unique().tolist() if "VisitID" in live_df.columns else []
+            visit_choices = (
+                live_df["VisitID"].astype(str).unique().tolist()
+                if "VisitID" in live_df.columns
+                else []
+            )
             sel_visit = st.selectbox("Select Visit ID", options=visit_choices)
         with persist_col:
-            persist_from_live = st.checkbox("Append to AI history", value=False, key="persist_from_live")
+            persist_from_live = st.checkbox(
+                "Append to AI history", value=False, key="persist_from_live"
+            )
 
         if st.button("Predict selected visit", key="btn_predict_from_live"):
             try:
                 params = {"vid": str(sel_visit)}
                 with st.spinner(f"Fetching VisitID {sel_visit} from REPLICA..."):
-                    src = read_sql("REPLICA", """
+                    src = read_sql(
+                        "REPLICA",
+                        """
 SELECT DISTINCT
     VS.VisitID, VC.EnName AS Visit_Type, V.MainSpecialityEnName AS PROVIDER_DEPARTMENT,
     G.EnName AS PATIENT_GENDER, DATEDIFF(YEAR, PA.DateOfBirth, GETDATE()) AS AGE,VS.id as VisitServiceID,
@@ -425,7 +481,9 @@ LEFT JOIN (
 ) AS SAS ON VS.VISITID = SAS.VISITID
 WHERE V.VisitStatusID != 3 AND VC.EnName != 'Ambulatory' AND VS.IsDeleted = 0
   AND VS.CompanyShare > 0 AND VFI.ContractTypeID = 1 AND VS.VisitID = :vid
-                    """, params)
+                    """,
+                        params,
+                    )
 
                 if src.empty:
                     info_box(f"No rows found on REPLICA for VisitID {sel_visit}.")
@@ -436,25 +494,36 @@ WHERE V.VisitStatusID != 3 AND VC.EnName != 'Ambulatory' AND VS.IsDeleted = 0
                     if history_df is None or history_df.empty:
                         info_box("produced no rows.")
                     else:
-                        rejected = (history_df["Medical_Prediction"] == "Rejected").sum()
+                        rejected = (
+                            history_df["Medical_Prediction"] == "Rejected"
+                        ).sum()
                         total = len(history_df)
-                        kpi_row([
-                            ("Scored services", total),
-                            ("Rejected", rejected),
-                            ("Approved", total - rejected),
-                        ])
+                        kpi_row(
+                            [
+                                ("Scored services", total),
+                                ("Rejected", rejected),
+                                ("Approved", total - rejected),
+                            ]
+                        )
                         st.dataframe(history_df, use_container_width=True)
 
                         if persist_from_live:
                             try:
                                 eng = get_engines()["AI"]
-                                with st.spinner("Appending to AI.dbo.Claims_Predictions_History..."):
+                                with st.spinner(
+                                    "Appending to AI.dbo.Claims_Predictions_History..."
+                                ):
                                     history_df.to_sql(
                                         name="Claims_Predictions_History",
-                                        con=eng, schema="dbo", if_exists="append",
-                                        index=False, chunksize=1000
+                                        con=eng,
+                                        schema="dbo",
+                                        if_exists="append",
+                                        index=False,
+                                        chunksize=1000,
                                     )
-                                st.success("Appended to AI.dbo.Claims_Predictions_History.")
+                                st.success(
+                                    "Appended to AI.dbo.Claims_Predictions_History."
+                                )
                             except Exception as e:
                                 st.error(f"Failed to write to AI history: {e}")
             except Exception as e:

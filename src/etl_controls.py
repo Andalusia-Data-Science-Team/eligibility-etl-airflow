@@ -6,6 +6,7 @@ from datetime import datetime
 
 DEFAULT_DAG_ID = "eligibility_job_"
 
+
 def trigger_airflow_dag(
     dag_id: str = DEFAULT_DAG_ID,
     base_url: str = None,
@@ -17,8 +18,10 @@ def trigger_airflow_dag(
     Reads AIRFLOW_BASE_URL and AIRFLOW_TOKEN from env if not passed.
     Returns (ok: bool, message: str, dag_run_id: str|None)
     """
-    base_url = base_url or os.getenv("AIRFLOW_BASE_URL")  # e.g. http://10.24.105.221:8080
-    token = token or os.getenv("AIRFLOW_TOKEN")           # if using an auth token
+    base_url = base_url or os.getenv(
+        "AIRFLOW_BASE_URL"
+    )  # e.g. http://10.24.105.221:8080
+    token = token or os.getenv("AIRFLOW_TOKEN")  # if using an auth token
     if not base_url:
         return False, "AIRFLOW_BASE_URL is not set", None
 
