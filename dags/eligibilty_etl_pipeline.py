@@ -16,7 +16,7 @@ from sqlalchemy import text
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.utils import Iqama_table, get_conn_engine, map_row, change_date, send_json_to_api, create_json_payload, extract_code, extract_outcome, extract_note, update_table
+from src.utils import Iqama_table, get_conn_engine, map_row, change_date, send_json_to_api, create_json_payload, extract_code, extract_outcome, extract_note, extract_allowedMoney, update_table
 
 CAIRO_TZ = pendulum.timezone('Africa/Cairo')
 
@@ -317,6 +317,7 @@ def eligibility_etl_pipeline():
             df["class"] = df["elgability_response"].apply(extract_code)
             df["outcome"] = df["elgability_response"].apply(extract_outcome)
             df["note"] = df["elgability_response"].apply(extract_note)
+            df["approval_limit"], df["copay_maximum"] = df["elgability_response"].apply(extract_allowedMoney)
             
 
             # Apply business rules
@@ -325,7 +326,7 @@ def eligibility_etl_pipeline():
             
             print(f"The number of the null values equal: {df['outcome'].isna().sum()}")
 
-            final_df = df[["visit_id", "outcome", "note", "class", "insertion_date"]]
+            final_df = df[["visit_id", "outcome", "note", "class", "approval_limit", "copay_maximum", "insertion_date"]]
             
             # Save transformed data to file
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')

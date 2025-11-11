@@ -1,0 +1,261 @@
+{
+  "nphies_response_time": 1.087575,
+  "response": {
+    "entry": [
+      {
+        "fullUrl": "https://tawuniya.com.sa/MessageHeader/c305243e-ad27-460c-ba74-548ee6584252",
+        "resource": {
+          "destination": [
+            {
+              "endpoint": "http://hjh.com/",
+              "receiver": {
+                "identifier": {
+                  "system": "http://nphies.sa/license/provider-license",
+                  "value": "10000000046019"
+                },
+                "type": "Organization"
+              }
+            }
+          ],
+          "eventCoding": {
+            "code": "eligibility-response",
+            "system": "http://nphies.sa/terminology/CodeSystem/ksa-message-events"
+          },
+          "focus": [
+            {
+              "reference": "https://tawuniya.com.sa/CoverageEligibilityResponse/289902875"
+            }
+          ],
+          "id": "c305243e-ad27-460c-ba74-548ee6584252",
+          "meta": {
+            "profile": [
+              "http://nphies.sa/fhir/ksa/nphies-fs/StructureDefinition/message-header|1.0.0"
+            ]
+          },
+          "resourceType": "MessageHeader",
+          "response": {
+            "code": "ok",
+            "identifier": "cfdec48b-536f-4909-8388-f3d6bf8a2a14"
+          },
+          "sender": {
+            "identifier": {
+              "system": "http://nphies.sa/license/payer-license",
+              "value": "7000911508"
+            },
+            "type": "Organization"
+          },
+          "source": {
+            "endpoint": "http://hjh.com/"
+          }
+        }
+      },
+      {
+        "fullUrl": "https://tawuniya.com.sa/CoverageEligibilityResponse/289902875",
+        "resource": {
+          "created": "2025-11-10",
+          "disposition": "Physician consultation is covered subject to Tawuniya's Policy Terms and Conditions.",
+          "extension": [
+            {
+              "url": "http://nphies.sa/fhir/ksa/nphies-fs/StructureDefinition/extension-siteEligibility",
+              "valueCodeableConcept": {
+                "coding": [
+                  {
+                    "code": "eligible",
+                    "system": "http://nphies.sa/terminology/CodeSystem/siteEligibility"
+                  }
+                ]
+              }
+            }
+          ],
+          "id": "289902875",
+          "identifier": [
+            {
+              "system": "https://tawuniya.com.sa/CoverageEligibilityResponse",
+              "value": "289902875"
+            }
+          ],
+          "insurance": [
+            {
+              "benefitPeriod": {
+                "end": "2026-06-19",
+                "start": "2025-06-20"
+              },
+              "coverage": {
+                "reference": "https://tawuniya.com.sa/Coverage/f4eb0ace-12b3-496e-8e67-2174fbcb8e1c"
+              },
+              "inforce": true,
+              "item": [
+                {
+                  "benefit": [
+                    {
+                      "allowedMoney": {
+                        "currency": "SAR",
+                        "value": 10000
+                      },
+                      "type": {
+                        "coding": [
+                          {
+                            "code": "approval-limit",
+                            "system": "http://nphies.sa/terminology/CodeSystem/benefit-type"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "allowedMoney": {
+                        "currency": "SAR",
+                        "value": 100
+                      },
+                      "type": {
+                        "coding": [
+                          {
+                            "code": "copay-maximum",
+                            "system": "http://nphies.sa/terminology/CodeSystem/benefit-type"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "allowedUnsignedInt": 20,
+                      "type": {
+                        "coding": [
+                          {
+                            "code": "copay-percent",
+                            "system": "http://nphies.sa/terminology/CodeSystem/benefit-type"
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "category": {
+                    "coding": [
+                      {
+                        "code": "13",
+                        "system": "http://nphies.sa/terminology/CodeSystem/benefit-category"
+                      }
+                    ]
+                  },
+                  "description": "Health Benefit Plan Coverage.",
+                  "name": "Health Benefit Plan Coverage",
+                  "network": {
+                    "coding": [
+                      {
+                        "code": "in",
+                        "system": "http://terminology.hl7.org/CodeSystem/benefit-network"
+                      }
+                    ]
+                  },
+                  "term": {
+                    "coding": [
+                      {
+                        "code": "lifetime",
+                        "system": "http://terminology.hl7.org/CodeSystem/benefit-term"
+                      }
+                    ]
+                  },
+                  "unit": {
+                    "coding": [
+                      {
+                        "code": "individual",
+                        "system": "http://terminology.hl7.org/CodeSystem/benefit-unit"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "benefit": [
+                    {
+                      "allowedString": "PRIVATE ROOM",
+                      "type": {
+                        "coding": [
+                          {
+                            "code": "room",
+                            "system": "http://nphies.sa/terminology/CodeSystem/benefit-type"
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "category": {
+                    "coding": [
+                      {
+                        "code": "17",
+                        "system": "http://nphies.sa/terminology/CodeSystem/benefit-category"
+                      }
+                    ]
+                  },
+                  "description": "Hospital Room and Board",
+                  "name": "Hospital Room and Board",
+                  "network": {
+                    "coding": [
+                      {
+                        "code": "in",
+                        "system": "http://terminology.hl7.org/CodeSystem/benefit-network"
+                      }
+                    ]
+                  },
+                  "term": {
+                    "coding": [
+                      {
+                        "code": "day",
+                        "system": "http://terminology.hl7.org/CodeSystem/benefit-term"
+                      }
+                    ]
+                  },
+                  "unit": {
+                    "coding": [
+                      {
+                        "code": "individual",
+                        "system": "http://terminology.hl7.org/CodeSystem/benefit-unit"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ],
+          "insurer": {
+            "reference": "https://tawuniya.com.sa/Organization/7a93b108-9284-44c0-b897-2cf6ddb3e5aa"
+          },
+          "meta": {
+            "profile": [
+              "http://nphies.sa/fhir/ksa/nphies-fs/StructureDefinition/eligibility-response|1.0.0"
+            ]
+          },
+          "outcome": "complete",
+          "patient": {
+            "reference": "https://tawuniya.com.sa/Patient/0f630221-d6e1-4acd-aa4c-23aca44c3482"
+          },
+          "purpose": ["discovery"],
+          "request": {
+            "identifier": {
+              "system": "http://hjh.com/CoverageEligibilityRequest",
+              "value": "e2d832f3-5ebe-4cb3-8c0c-96973aa415a7"
+            },
+            "type": "CoverageEligibilityRequest"
+          },
+          "requestor": {
+            "reference": "https://tawuniya.com.sa/Organization/cb07167a-69e4-4753-ae10-d0ca28c881d5"
+          },
+          "resourceType": "CoverageEligibilityResponse",
+          "servicedPeriod": {
+            "end": "2025-11-10",
+            "start": "2025-11-10"
+          },
+          "status": "active"
+        }
+      }
+    ],
+    "id": "305b382d-d83c-46b4-85bd-d847275d1c09",
+    "meta": {
+      "profile": [
+        "http://nphies.sa/fhir/ksa/nphies-fs/StructureDefinition/bundle|1.0.0"
+      ]
+    },
+    "resourceType": "Bundle",
+    "timestamp": "2025-11-10T15:25:37.335+03:00",
+    "type": "message"
+  },
+  "status": "success",
+  "status_code": 200
+}

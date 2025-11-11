@@ -231,12 +231,12 @@ def run_llm_and_show(df: pd.DataFrame, visit_id: str):
 
 # ---------- TABS ----------
 tab_bi, tab_manual, tab_live = st.tabs(
-    [" BI rejection", "Get Justifications", " Live source"]
+    [" Rejection", "Get Justifications", " Live source"]
 )
 
 # === TAB 1: BI rejected — show existing BI justifications, no LLM ===
 with tab_bi:
-    st.caption("Load BI output and view/export the existing justification for a specific VisitID.")
+    st.caption("Load output and view/export the existing justification for a specific VisitID.")
     c1, c2 = st.columns([1.6, 1])
     with c1:
         bi_visit_filter = st.text_input("Filter by Visit ID (optional)")
@@ -311,10 +311,6 @@ with tab_bi:
 
 # === TAB 2: Manual single visit (REPLICA + LLM) ===
 with tab_manual:
-    st.caption(
-        "Enter a VisitID. If it exists in the loaded BI table, we'll show the existing BI justification. "
-        "Otherwise we’ll fetch from REPLICA and run the LLM for that one visit."
-    )
     vcol, chkcol = st.columns([2, 1])
     with vcol:
         manual_vid = st.text_input("Visit ID (required)", placeholder="e.g., 488746")

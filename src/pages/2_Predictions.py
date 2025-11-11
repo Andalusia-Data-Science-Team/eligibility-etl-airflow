@@ -228,7 +228,6 @@ tab_history, tab_predict, tab_live = st.tabs(
 
 # === HISTORY ===
 with tab_history:
-    st.caption("View previous prediction results (from local CSV snapshot).")
     c1, c2 = st.columns([1.5, 1])
     with c1:
         visit_filter = st.text_input("Filter by Visit ID (optional)", placeholder="e.g., 715397")
@@ -241,7 +240,7 @@ with tab_history:
         df = load_history_csv()
 
         if df is None or df.empty:
-            info_box("No history rows available in the CSV snapshot.")
+            info_box("No history rows available.")
         else:
             # Normalize column names
             cols_lower = [c.lower() for c in df.columns]
@@ -260,17 +259,17 @@ with tab_history:
             df = df.head(int(limit_rows))
 
             if df.empty:
-                info_box("No history rows matched your filters.")
+                info_box("No rows matched your filters.")
             else:
                 rejected = (df["Medical_Prediction"] == "Rejected").sum() if "Medical_Prediction" in df.columns else 0
                 total = len(df)
                 kpi_row([("History rows", total), ("Rejected", rejected), ("Approved", total - rejected)])
                 st.dataframe(df, use_container_width=True)
-                st.caption("Showing local CSV snapshot.")
+                st.caption("Showing local snapshot.")
                 
 # === PREDICT ONE ===
 with tab_predict:
-    st.caption("Generate a new prediction for a Visit ID. Falls back to local snapshot if Replica is unavailable.")
+    st.caption("Generate a new prediction for a Visit ID.")
 
     # Input only (no 'show source' checkbox)
     vcol = st.columns([3])[0]

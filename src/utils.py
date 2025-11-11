@@ -529,7 +529,38 @@ def extract_note(response):
     else:
         print("Disposition key not found in the resource.")
         return None
-    
+
+
+def extract_allowedMoney(response):
+    # Handle None responses
+    if response is None:
+        return "Null"
+    if response.get("status") != "success":
+        return "Null"
+
+    # Safely get entries
+    entries = response.get("response", {}).get("entry", [])
+    if not entries:
+        print("No entries found in the response.")
+        return "Null"
+
+    for entry in entries:
+        resource = entry.get("resource", {})
+        insurance_list = resource.get("insurance", [])
+
+        approval_limit = None
+        copay_maximum = None
+
+        for insurance in insurance_list:
+            for item in insurance.get("item", []):
+                for benefit in item.get("benefit", []):
+                    benefit_type = benefit.get("type", {}).get("coding", [{}])[0].get("code")
+                    if benefit_type == "approval-limit":
+                        approval_limit = benefit.get("allowedMoney", {}).get("value")
+                    elif benefit_type == "copay-maximum":
+                        copay_maximum = benefit.get("allowedMoney", {}).get("value")
+    return approval_limit, copay_maximum
+
     
 def _load_json(file_path):
     """
