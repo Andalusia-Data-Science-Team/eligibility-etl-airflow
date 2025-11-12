@@ -33,6 +33,119 @@ from src.db import read_sql, cached_read, get_engines
 from src.components import kpi_row, info_box
 from src.AHJ_Claims import make_preds
 
+# ---------- ICD10 loader (shared) ----------
+from functools import lru_cache
+
+# put the CSV under your repo's /data if you like; keep a fallback to /mnt/data
+ICD10_PATHS = [
+    Path(__file__).resolve().parents[2] / "data" / "idc10_disease_full_data.csv",
+    Path("/mnt/data/idc10_disease_full_data.csv"),
+]
+
+@lru_cache(maxsize=1)
+def load_icd10_maps():
+    """Return (code->name, name->code) using the full ICD10 CSV."""
+    import pandas as _pd
+    df = None
+    errs = []
+    for p in ICD10_PATHS:
+        try:
+            if p.exists():
+                df = _pd.read_csv(p, dtype=str, keep_default_na=False, encoding="utf-8", on_bad_lines="skip")
+                break
+        except Exception as e:
+            errs.append(f"{p}: {e}")
+    if df is None or df.empty:
+        st.warning("ICD10 table not found/empty. Free-text will be used.")
+        return {}, {}
+
+    # CSV columns: diseaseCode, diseaseDescription, (…)
+    code_col = "diseaseCode" if "diseaseCode" in df.columns else df.columns[0]
+    name_col = "diseaseDescription" if "diseaseDescription" in df.columns else df.columns[1]
+
+    df[code_col] = df[code_col].astype(str).str.strip().str.upper()
+    df[name_col] = df[name_col].astype(str).str.strip()
+
+    # main maps
+    code_to_name = {c: n for c, n in zip(df[code_col], df[name_col]) if c}
+    # make the name lookup more forgiving
+    def _norm_name(s: str) -> str:
+        return " ".join(str(s).lower().split())
+
+    name_to_code = {}
+    for c, n in code_to_name.items():
+        name_to_code.setdefault(_norm_name(n), c)
+    # also add a few alias forms without punctuation
+    import re as _re
+    for n, c in list(name_to_code.items()):
+        alias = _re.sub(r"[^a-z0-9 ]+", "", n)
+        if alias and alias not in name_to_code:
+            name_to_code[alias] = c
+
+    return code_to_name, name_to_code
+
+def resolve_icd10_pair(icd10_input: str, dx_input: str):
+    """
+    Given either/both of (icd10 code, diagnosis name) return a consistent (code, name).
+    Prefers explicit ICD10 if both provided.
+    """
+    code_to_name, name_to_code = load_icd10_maps()
+
+    icd10 = (icd10_input or "").strip().upper()
+    dx    = (dx_input  or "").strip()
+
+    if icd10 and icd10 in code_to_name:
+        return icd10, code_to_name[icd10]
+
+    if dx:
+        key = " ".join(dx.lower().split())
+        # try exact/normalized name
+        if key in name_to_code:
+            c = name_to_code[key]
+            return c, code_to_name.get(c, dx)
+        # try a loose contains match on descriptions (fallback)
+        match = next((c for c, name in code_to_name.items() if key and key in name.lower()), None)
+        if match:
+            return match, code_to_name[match]
+
+    # if we get here: unknown; pass through raw user text
+    return icd10, dx
+
+# ===== Manual-entry helpers (diagnosis <-> ICD10 mapping) =====
+ICD10_MAP = {
+    "D50.9": "Iron deficiency anemia, unspecified",
+    "G43.9": "Migraine, unspecified",
+    "J06.9": "Acute upper respiratory infection, unspecified",
+    "E11.9": "Type 2 diabetes mellitus without complications",
+    "I10":   "Essential (primary) hypertension",
+}
+DX_TO_ICD = {v.lower(): k for k, v in ICD10_MAP.items()}
+
+# Initialize state keys for sync
+for _k, _v in {
+    "dx_name": "",
+    "icd10": "",
+    "_last_filled": "",
+}.items():
+    if _k not in st.session_state:
+        st.session_state[_k] = _v
+
+def _on_dx_change():
+    """Auto-fill ICD10 when Diagnosis Name matches known mapping"""
+    name = (st.session_state.get("dx_name") or "").strip().lower()
+    code = DX_TO_ICD.get(name)
+    if code:
+        st.session_state.icd10 = code
+        st.session_state._last_filled = "dx"
+
+def _on_icd_change():
+    """Auto-fill Diagnosis Name when ICD10 matches known mapping"""
+    code = (st.session_state.get("icd10") or "").strip().upper()
+    name = ICD10_MAP.get(code)
+    if name:
+        st.session_state.dx_name = name
+        st.session_state._last_filled = "icd"
+# ================= Streamlit Page =================
 # ---------------- Page Setup ----------------
 st.set_page_config(page_title="Predictions", page_icon="💊", layout="wide")
 
@@ -338,128 +451,75 @@ WHERE V.VisitStatusID != 3 AND VC.EnName != 'Ambulatory' AND VS.IsDeleted = 0
                 network_issue_box("live")
 
 
-# === LIVE ===
+# === LIVE (manual entry; no DB) ===
 with tab_live:
-    st.caption("Load latest Replica data · Choose a Visit ID · Predict it.")
+    st.caption("Enter the required fields manually and run a prediction.")
 
-    # Top action row (kept minimal & on-brand)
-    load_col, _ = st.columns([1, 3])
-    with load_col:
-        load_clicked = st.button("Load latest window", key="btn_live_load")
+    with st.form("live_manual_pred"):
+        c1, c2 = st.columns(2)
 
-    if load_clicked:
-        try:
-            base_sql = (SQL_DIR / "claims_ahj.sql").read_text().strip()
-            if base_sql.endswith(";"):
-                base_sql = base_sql[:-1]
-            live_df = read_sql("REPLICA", base_sql, {})
-            st.session_state["_live_window_df"] = live_df
-            st.session_state["_live_err"] = None
-        except Exception as e:
-            st.session_state["_live_window_df"] = pd.DataFrame()
-            st.session_state["_live_err"] = str(e)
+        with c1:
+            service_name = st.text_input("Service Name (required)", placeholder="e.g., Ferritin")
+            dx_name      = st.text_input("Diagnosis Name (required)", key="dx_name_pred", placeholder="e.g., Iron deficiency anemia")
+            chief_complaint = st.text_input("Chief Complaint (required)", placeholder="e.g., Fatigue and pallor")
+            qty          = st.number_input("Quantity", min_value=1, value=1, step=1)
+            age          = st.number_input("Age", min_value=0, value=30, step=1)
 
-    # Error surface (if any)
-    if st.session_state.get("_live_err"):
-        st.error(
-            "Couldn’t reach REPLICA.\n\n"
-            "• Check VPN / network / DB credentials\n"
-            "• Verify `sql/claims_ahj.sql` exists\n\n"
-            f"Details: {st.session_state['_live_err']}"
-        )
+        with c2:
+            icd10        = st.text_input("ICD10 Code (required)", key="icd10_pred", placeholder="e.g., D50.9")
+            symptoms     = st.text_input("Symptoms (optional)", placeholder="comma-separated…")
 
-    live_df = st.session_state.get("_live_window_df")
+        run_pred = st.form_submit_button("Run Prediction")
 
-    if isinstance(live_df, pd.DataFrame) and not live_df.empty:
-        # KPIs for context
-        from src.components import kpi_row  # safe import
-        kpi_row([
-            ("Rows", len(live_df)),
-            ("Visits", live_df["VisitID"].nunique() if "VisitID" in live_df.columns else 0),
-        ])
+    if run_pred:
+        # Resolve ICD10 <-> Diagnosis
+        icd10_final, dx_final = resolve_icd10_pair(icd10, dx_name)
 
-        st.markdown("---")
+        # Validate requireds
+        missing = []
+        if not service_name.strip(): missing.append("Service Name")
+        if not dx_final.strip():     missing.append("Diagnosis Name / ICD10")
+        if not icd10_final.strip():  missing.append("ICD10")
+        if not chief_complaint.strip(): missing.append("Chief Complaint")
+        if age is None: missing.append("Age")
+        if qty is None: missing.append("Quantity")
 
-        st.caption("Pick a Visit ID from the loaded window and run predictions on it.")
-        select_col, persist_col = st.columns([2, 1])
-        with select_col:
-            visit_choices = live_df["VisitID"].astype(str).unique().tolist() if "VisitID" in live_df.columns else []
-            sel_visit = st.selectbox("Select Visit ID", options=visit_choices)
-        with persist_col:
-            persist_from_live = st.checkbox("Append to AI history", value=False, key="persist_from_live")
+        if missing:
+            st.error("Please fill: " + ", ".join(missing))
+        else:
+            # Build a one-row DF with required columns for make_preds()
+            now = datetime.now()
+            manual_row = {
+                "VisitID":              f"MAN-{now.strftime('%Y%m%d%H%M%S')}",  # synthetic
+                "Visit_Type":           "Manual Entry",
+                "PROVIDER_DEPARTMENT":  "Unknown",
+                "PATIENT_GENDER":       "Unknown",
+                "AGE":                  int(age),
+                "Creation_Date":        now,
+                "Updated_Date":         now,
+                "Service_Name":         service_name.strip(),
+                "Quantity":             int(qty),
+                "DIAGNOS_NAME":         dx_final,
+                "ICD10":                icd10_final,
+                "ProblemNote":          "",
+                "Diagnose":             dx_final,
+                "CHIEF_COMPLAINT":      chief_complaint.strip(),
+                "Chief_Complaint":      chief_complaint.strip(),
+                "Symptoms":             symptoms.strip(),
+                "VisitServiceID":       f"VS-{now.strftime('%H%M%S%f')}",       # synthetic
+            }
+            src = pd.DataFrame([manual_row])
 
-        if st.button("Predict selected visit", key="btn_predict_from_live"):
-            try:
-                params = {"vid": str(sel_visit)}
-                with st.spinner(f"Fetching VisitID {sel_visit} from REPLICA..."):
-                    src = read_sql("REPLICA", """
-SELECT DISTINCT
-    VS.VisitID, VC.EnName AS Visit_Type, V.MainSpecialityEnName AS PROVIDER_DEPARTMENT,
-    G.EnName AS PATIENT_GENDER, DATEDIFF(YEAR, PA.DateOfBirth, GETDATE()) AS AGE,VS.id as VisitServiceID,
-    VS.ClaimDate AS Creation_Date, VS.UpdatedDate AS Updated_Date, VS.ServiceEnName AS [Service_Name], VS.Quantity,
-    PCD.ICDDiagnoseNames AS DIAGNOS_NAME, PCD.ICDDiagnoseCodes AS ICD10, PCD.ProblemNote,
-    PCD.ICDDiagnoseNames AS Diagnose,
-    CC.ChiefComplaintNotes AS CHIEF_COMPLAINT, CC.ChiefComplaintNotes AS Chief_Complaint,
-    SAS.Symptoms
-FROM VisitMgt.VisitService AS VS
-LEFT JOIN VisitMgt.Visit AS V ON VS.VisitID = V.ID
-LEFT JOIN VISITMGT.SLKP_visitclassification VC ON V.VisitClassificationID = VC.ID
-LEFT JOIN MPI.Patient PA ON PA.ID = V.PatientID
-LEFT JOIN MPI.SLKP_Gender G ON PA.GenderID = G.ID
-LEFT JOIN VisitMgt.VisitFinincailInfo AS VFI ON VFI.VisitID = VS.VisitID
-LEFT JOIN PatPrlm.ChiefComplaint CC ON CC.VisitID = VS.VisitID
-LEFT JOIN (
-    SELECT VISITID,
-           STRING_AGG(PCD.ICDDiagnoseName, ' , ') AS ICDDiagnoseNames,
-           STRING_AGG(PCD.ICDDiagnoseCode, ' , ') AS ICDDiagnoseCodes,
-           STRING_AGG(PC.Note, ' , ') AS ProblemNote
-    FROM Patprlm.ProblemCard AS PC
-    LEFT JOIN Patprlm.ProblemCardDetail PCD ON PC.ID = PCD.ProblemCardID
-    GROUP BY VISITID
-) AS PCD ON PCD.VisitID = VS.VisitID
-LEFT JOIN (
-    SELECT VISITID, STRING_AGG(SS.SignAndSymptomNotes, ',') AS Symptoms
-    FROM [PatPrlm].[SignsAndSymptoms] SS
-    GROUP BY VISITID
-) AS SAS ON VS.VISITID = SAS.VISITID
-WHERE V.VisitStatusID != 3 AND VC.EnName != 'Ambulatory' AND VS.IsDeleted = 0
-  AND VS.CompanyShare > 0 AND VFI.ContractTypeID = 1 AND VS.VisitID = :vid
-                    """, params)
+            with st.spinner("Scoring the manual entry…"):
+                history_df = make_preds(src)
 
-                if src.empty:
-                    info_box(f"No rows found on REPLICA for VisitID {sel_visit}.")
-                else:
-                    with st.spinner(f"Scoring services for VisitID {sel_visit}..."):
-                        history_df = make_preds(src)
-
-                    if history_df is None or history_df.empty:
-                        info_box("produced no rows.")
-                    else:
-                        rejected = (history_df["Medical_Prediction"] == "Rejected").sum()
-                        total = len(history_df)
-                        kpi_row([
-                            ("Scored services", total),
-                            ("Rejected", rejected),
-                            ("Approved", total - rejected),
-                        ])
-                        st.dataframe(history_df, use_container_width=True)
-
-                        if persist_from_live:
-                            try:
-                                eng = get_engines()["AI"]
-                                with st.spinner("Appending to AI.dbo.Claims_Predictions_History..."):
-                                    history_df.to_sql(
-                                        name="Claims_Predictions_History",
-                                        con=eng, schema="dbo", if_exists="append",
-                                        index=False, chunksize=1000
-                                    )
-                                st.success("Appended to AI.dbo.Claims_Predictions_History.")
-                            except Exception as e:
-                                st.error(f"Failed to write to AI history: {e}")
-            except Exception as e:
-                st.error(f"Replica read failed: {e}")
-    else:
-        st.caption("Load the latest window first, then select a Visit ID to score.")
+            if history_df is None or history_df.empty:
+                info_box("No prediction rows produced.")
+            else:
+                rejected = (history_df["Medical_Prediction"] == "Rejected").sum() if "Medical_Prediction" in history_df else 0
+                total = len(history_df)
+                kpi_row([("Scored services", total), ("Rejected", rejected), ("Approved", total - rejected)])
+                st.dataframe(history_df, use_container_width=True)
 
 
 # ---------- Footer ----------
