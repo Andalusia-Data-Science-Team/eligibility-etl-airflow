@@ -229,7 +229,6 @@ if not record.empty:
         f"""
         <div class="kv-grid">
           <div class="kv-item"><div class="kv-label">Visit</div><div class="kv-value">{_pick(row, ['visit_id'])}</div></div>
-
           <div class="kv-item"><div class="kv-label">Eligibility Status</div><div class="kv-value">{_pick(row, ['eligibility_status','class'])}</div></div>
           <div class="kv-item"><div class="kv-label">Eligibility Note</div><div class="kv-value">{_pick(row, ['eligibility_note','note'])}</div></div>
           <div class="kv-item"><div class="kv-label">Insurance Company</div><div class="kv-value">{_pick(row, ['insurance company'])}</div></div>

@@ -1,4 +1,4 @@
-# pages/3_Resubmission.py
+# pages/3_Resubmission.py 
 from __future__ import annotations
 import base64
 from pathlib import Path
@@ -343,201 +343,12 @@ def run_llm_and_show(df: pd.DataFrame, visit_id: str):
 
 
 # ---------- TABS ----------
-tab_bi, tab_manual, tab_live = st.tabs(
-    [" Rejection", "Get Justifications", " Live source"]
+tab_manual_entry, tab_csv_validate = st.tabs(
+    [" Manual Entry", " Validate on CSV"]
 )
 
-# === TAB 1: BI rejected — show existing BI justifications, no LLM ===
-with tab_bi:
-    st.caption("Load output and view/export the existing justification for a specific VisitID.")
-    c1, c2 = st.columns([1.6, 1])
-    with c1:
-        bi_visit_filter = st.text_input("Filter by Visit ID (optional)")
-    with c2:
-        limit_rows = st.number_input("Max rows", min_value=100, max_value=100000, value=100)
-
-    if st.button("Load", key="bi-load"):
-        q = f"""
-            SELECT TOP {int(limit_rows)}
-                VisitID, VisitServiceID, Service_Name, Reason, Justification,
-                ContractorEnName, VisitStartDate, VisitClassificationEnName, ResponseReasonCode
-            FROM dbo.Resubmission_Copilot
-            WHERE 1=1
-        """
-        params = {}
-        if bi_visit_filter.strip():
-            q += " AND VisitID = :v"
-            params["v"] = bi_visit_filter.strip()
-        q += " ORDER BY VisitServiceID"
-
-        try:
-            df_bi = cached_read("BI", q, params)
-
-            # ---- Merge Reason + ResponseReasonCode BEFORE displaying ----
-            REASON_MAP = {
-                "MN-1-1": "Service is not clinically justified based on clinical practice guideline, without additional supporting diagnosis",
-                "AD-1-4": "Diagnosis is inconsistent with service/procedure",
-                "AD-3-5": "Diagnosis is inconsistent with patient's age",
-            }
-
-            if not df_bi.empty:
-                def _merge_reason(row):
-                    code = (str(row.get("ResponseReasonCode", "")).strip() or "")
-                    code_text = REASON_MAP.get(code, code) if code else ""
-                    reason = (str(row.get("Reason", "")).strip() or "")
-
-                    parts = []
-                    if code_text:
-                        parts.append(code_text)
-                    if reason and reason.lower() not in code_text.lower():
-                        parts.append(reason)
-                    return " — ".join(p for p in parts if p) or reason or code_text
-
-                df_bi["Reason"] = df_bi.apply(_merge_reason, axis=1)
-                # Drop the original code column
-                if "ResponseReasonCode" in df_bi.columns:
-                    df_bi = df_bi.drop(columns=["ResponseReasonCode"])
-
-                # Optional: put Reason right after Service_Name
-                desired_order = [
-                    "VisitID", "VisitServiceID", "Service_Name", "Reason","ContractorEnName", "VisitStartDate",
-                    "VisitClassificationEnName","Justification"
-                ]
-                # keep any extras at the end
-                cols = [c for c in desired_order if c in df_bi.columns] + \
-                       [c for c in df_bi.columns if c not in desired_order]
-                df_bi = df_bi[cols]
-
-            st.session_state["_bi_df"] = df_bi
-
-            if df_bi.empty:
-                info_box("No rows matched your filters.")
-            else:
-                kpi_row([("Rows", len(df_bi)), ("Visits", df_bi["VisitID"].astype(str).nunique())])
-                st.dataframe(df_bi, use_container_width=True)
-
-        except Exception as e:
-            st.error(f"Could not reach BI: {e}")
-
-    df_bi = st.session_state.get("_bi_df")
-                    
-
-# === TAB 2: Manual single visit (REPLICA + LLM) ===
-with tab_manual:
-    vcol, chkcol = st.columns([2, 1])
-    with vcol:
-        manual_vid = st.text_input("Visit ID (required)", placeholder="e.g., 488746")
-    with chkcol:
-        show_src = st.checkbox("Show fetched source (if using REPLICA)", value=False)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    if st.button("Get result for this visit", key="manual_btn"):
-        vid = manual_vid.strip()
-        if not vid:
-            st.error("Please enter a Visit ID.")
-        else:
-            # 1) Try BI first (if loaded in this session)
-            bi_df = st.session_state.get("_bi_df")
-            if (
-                isinstance(bi_df, pd.DataFrame)
-                and not bi_df.empty
-                and "VisitID" in bi_df.columns
-                and vid in bi_df["VisitID"].astype(str).values
-            ):
-                st.success(f"Found Visit {vid} in BI history. Showing existing justification.")
-                sub = bi_df[bi_df["VisitID"].astype(str) == vid]
-                show_cols = [c for c in ["VisitID", "VisitServiceID", "Service_Name", "Reason", "Justification"] if c in sub.columns]
-                st.dataframe(sub[show_cols], use_container_width=True)
-
-            else:
-                # 2) Not in BI → REPLICA + LLM (and keep the REPLICA table layout)
-                try:
-                    src = fetch_single_visit_from_replica(vid)
-                    if not src.empty and "VisitID" in src.columns:
-                        src = src[src["VisitID"].astype(str) == vid]
-
-                    if src.empty:
-                        info_box("No rows found on REPLICA for that Visit.")
-                    else:
-                        if show_src:
-                            st.dataframe(src, use_container_width=True)
-
-                        # --- Run LLM on the same rows ---
-                        with st.spinner(f"Generating justifications for Visit {vid}…"):
-                            result = transform_loop(src, ui_logger)
-
-                        # --- Start from the REPLICA table EXACTLY as-is ---
-                        merged = src.copy()
-                        base_cols = list(src.columns)  # preserve exact order
-
-                        # Small helper to find first matching column name
-                        def _pick(df, names):
-                            for n in names:
-                                if n in df.columns:
-                                    return n
-                            return None
-
-                        # --- Attach LLM Justification by VisitServiceID/Service_id if present ---
-                        if isinstance(result, pd.DataFrame) and not result.empty:
-                            key_src = _pick(src,    ["VisitServiceID", "Service_id", "ItemId", "service_id"])
-                            key_res = _pick(result, ["VisitServiceID", "Service_id", "ItemId", "service_id"])
-                            just_col = _pick(result, ["Justification", "justification"])
-                            if key_src and key_res and just_col:
-                                right = (
-                                    result[[key_res, just_col]]
-                                    .rename(columns={key_res: "__key__", just_col: "Justification"})
-                                    .drop_duplicates()
-                                )
-                                merged["__key__"] = merged[key_src]
-                                merged = merged.merge(right, on="__key__", how="left")
-                                merged.drop(columns="__key__", inplace=True, errors="ignore")
-                            else:
-                                merged["Justification"] = ""
-                        else:
-                            merged["Justification"] = ""
-
-                        # --- Build user-friendly Reason from ResponseReasonCode + Reason (same mapping as Live tab) ---
-                        REASON_MAP = {
-                            "MN-1-1": "Service is not clinically justified based on clinical practice guideline, without additional supporting diagnosis",
-                            "AD-1-4": "Diagnosis is inconsistent with service/procedure",
-                            "AD-3-5": "Diagnosis is inconsistent with patient's age",
-                        }
-                        def _merge_reason(row):
-                            code = str(row.get("ResponseReasonCode", "") or "").strip()
-                            reason = str(row.get("Reason", "") or "").strip()
-                            mapped = REASON_MAP.get(code, code) if code else ""
-                            parts = []
-                            if mapped:
-                                parts.append(mapped)
-                            if reason and reason.lower() not in mapped.lower():
-                                parts.append(reason)
-                            return " — ".join(parts) if parts else ""
-                        if "Reason" in merged.columns or "ResponseReasonCode" in merged.columns:
-                            merged["Reason"] = merged.apply(_merge_reason, axis=1)
-                            merged.drop(columns=["ResponseReasonCode"], inplace=True, errors="ignore")
-
-                        # --- Final columns: EXACTLY Replica columns + Justification LAST ---
-                        extras = [c for c in merged.columns if c not in base_cols and c != "Justification"]
-                        final_cols = base_cols + extras + (["Justification"] if "Justification" in merged.columns else [])
-                        merged = merged.reindex(columns=final_cols)
-
-                        # --- Show & Download ---
-                        st.subheader("Justification Result")
-                        st.dataframe(merged, use_container_width=True)
-
-                        c1, _ = st.columns(2)
-                        with c1:
-                            st.download_button(
-                                "⬇ Download PDF",
-                                data=render_pdf(merged, str(vid)),
-                                file_name=f"resubmission_{vid}.pdf",
-                                mime="application/pdf",
-                            )
-                except Exception as e:
-                    st.error(f"Replica error: {e}")
-
-# === TAB 3: Live source (manual entry; no DB) ===
-with tab_live:
+# === TAB 1: Manual Entry (old Live source manual-entry logic) ===
+with tab_manual_entry:
     st.caption("Enter the required fields manually and create a justification.")
 
     # Rejection reasons: show description in dropdown, keep code internally
@@ -663,7 +474,133 @@ with tab_live:
                         file_name=f"resubmission_{merged.loc[0, 'VisitID']}.pdf",
                         mime="application/pdf",
                     )
-                    
+
+# === TAB 2: Validate on CSV (upload CSV → pick VisitID → REPLICA + LLM) ===
+with tab_csv_validate:
+    st.caption("Upload a CSV of Visit IDs, pick one, fetch from REPLICA, and generate justifications.")
+
+    uploaded_file = st.file_uploader(
+        "Upload CSV (first column should be VisitID list)",
+        type=["csv"],
+        key="csv_validate_uploader",
+    )
+
+    if uploaded_file is not None:
+        try:
+            df_ids = pd.read_csv(uploaded_file, dtype=str, keep_default_na=False)
+        except Exception as e:
+            st.error(f"Could not read CSV: {e}")
+            df_ids = pd.DataFrame()
+
+        if df_ids.empty:
+            info_box("The uploaded CSV has no rows.")
+        else:
+            first_col = df_ids.columns[0]
+            visit_choices = sorted(df_ids[first_col].astype(str).unique().tolist())
+
+            pick_col, opt_col = st.columns([2, 1])
+            with pick_col:
+                sel_visit = st.selectbox(
+                    f"Select Visit ID from '{first_col}' column",
+                    options=visit_choices,
+                    key="csv_visit_select",
+                )
+            with opt_col:
+                show_src = st.checkbox("Show fetched source rows", value=False)
+
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            if st.button("Run Validation", key="csv_run_validation_btn"):
+                vid = sel_visit.strip()
+                if not vid:
+                    st.error("Please select a Visit ID.")
+                else:
+                    try:
+                        src = fetch_single_visit_from_replica(vid)
+                        if not src.empty and "VisitID" in src.columns:
+                            src = src[src["VisitID"].astype(str) == vid]
+
+                        if src.empty:
+                            info_box("No rows found on REPLICA for that Visit.")
+                        else:
+                            if show_src:
+                                st.subheader("Source Row(s) from REPLICA")
+                                st.dataframe(src, use_container_width=True)
+
+                            # --- Run LLM on the same rows ---
+                            with st.spinner(f"Generating justifications for Visit {vid}…"):
+                                result = transform_loop(src, ui_logger)
+
+                            # --- Start from the REPLICA table EXACTLY as-is ---
+                            merged = src.copy()
+                            base_cols = list(src.columns)  # preserve exact order
+
+                            # Small helper to find first matching column name
+                            def _pick(df, names):
+                                for n in names:
+                                    if n in df.columns:
+                                        return n
+                                return None
+
+                            # --- Attach LLM Justification by VisitServiceID/Service_id if present ---
+                            if isinstance(result, pd.DataFrame) and not result.empty:
+                                key_src = _pick(src,    ["VisitServiceID", "Service_id", "ItemId", "service_id"])
+                                key_res = _pick(result, ["VisitServiceID", "Service_id", "ItemId", "service_id"])
+                                just_col = _pick(result, ["Justification", "justification"])
+                                if key_src and key_res and just_col:
+                                    right = (
+                                        result[[key_res, just_col]]
+                                        .rename(columns={key_res: "__key__", just_col: "Justification"})
+                                        .drop_duplicates()
+                                    )
+                                    merged["__key__"] = merged[key_src]
+                                    merged = merged.merge(right, on="__key__", how="left")
+                                    merged.drop(columns="__key__", inplace=True, errors="ignore")
+                                else:
+                                    merged["Justification"] = ""
+                            else:
+                                merged["Justification"] = ""
+
+                            # --- Build user-friendly Reason from ResponseReasonCode + Reason ---
+                            REASON_MAP = {
+                                "MN-1-1": "Service is not clinically justified based on clinical practice guideline, without additional supporting diagnosis",
+                                "AD-1-4": "Diagnosis is inconsistent with service/procedure",
+                                "AD-3-5": "Diagnosis is inconsistent with patient's age",
+                            }
+                            def _merge_reason(row):
+                                code = str(row.get("ResponseReasonCode", "") or "").strip()
+                                reason = str(row.get("Reason", "") or "").strip()
+                                mapped = REASON_MAP.get(code, code) if code else ""
+                                parts = []
+                                if mapped:
+                                    parts.append(mapped)
+                                if reason and reason.lower() not in mapped.lower():
+                                    parts.append(reason)
+                                return " — ".join(parts) if parts else ""
+                            if "Reason" in merged.columns or "ResponseReasonCode" in merged.columns:
+                                merged["Reason"] = merged.apply(_merge_reason, axis=1)
+                                merged.drop(columns=["ResponseReasonCode"], inplace=True, errors="ignore")
+
+                            # --- Final columns: EXACTLY Replica columns + Justification LAST ---
+                            extras = [c for c in merged.columns if c not in base_cols and c != "Justification"]
+                            final_cols = base_cols + extras + (["Justification"] if "Justification" in merged.columns else [])
+                            merged = merged.reindex(columns=final_cols)
+
+                            # --- Show & Download ---
+                            st.subheader("Justification Result")
+                            st.dataframe(merged, use_container_width=True)
+
+                            c1, _ = st.columns(2)
+                            with c1:
+                                st.download_button(
+                                    "⬇ Download PDF",
+                                    data=render_pdf(merged, str(vid)),
+                                    file_name=f"resubmission_{vid}.pdf",
+                                    mime="application/pdf",
+                                )
+                    except Exception as e:
+                        st.error(f"Replica error: {e}")
+
 # ---------- Footer ----------
 st.markdown(
     f'<p style="text-align:center;color:#94a3b8;margin-top:2rem">©️ {datetime.now().year} Claims Copilot</p>',
