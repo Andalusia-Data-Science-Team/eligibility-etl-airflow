@@ -11,7 +11,8 @@ SELECT DISTINCT
 	P.Age,
 	P.Gender_Description AS Gender,
 	DCS.ChiefComplaintNotes,
-	DCS.SymptomNotes
+	DCS.SymptomNotes,
+	pt.PatientEpisodeType_Desc AS VisitType
 
 FROM DAX.FactBilling FB
 
@@ -36,4 +37,4 @@ ON fb.Doctor_Key=ds.Staff_Key
 WHERE FB.Organization_Key = 1 
 --AND FB.Service_Date >= DATEADD(HOUR, -12, CURRENT_TIMESTAMP)
 AND CAST(FB.Service_Date AS DATE) = CAST(GETDATE() - 1 AS DATE)
-AND pt.PatientEpisodeType_Desc = 'Outpatient'
+AND pt.PatientEpisodeType_Desc IN ('Outpatient', 'Inpatient', 'ER')

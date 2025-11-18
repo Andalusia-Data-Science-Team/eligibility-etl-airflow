@@ -241,7 +241,6 @@ tab_history, tab_predict, tab_live = st.tabs(
 
 # === HISTORY ===
 with tab_history:
-    st.caption("View previous prediction results (from local CSV snapshot).")
     c1, c2 = st.columns([1.5, 1])
     with c1:
         visit_filter = st.text_input(

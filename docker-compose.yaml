@@ -44,7 +44,6 @@ services:
       - ./sql:/opt/airflow/sql
       - ./passcode.json:/opt/airflow/passcode.json
       - ./.env:/opt/airflow/.env
-      - ./etl_analysis.csv:/opt/airflow/etl_analysis.csv
     command: scheduler
 
 volumes:

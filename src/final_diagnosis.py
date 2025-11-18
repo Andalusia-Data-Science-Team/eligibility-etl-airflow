@@ -273,7 +273,7 @@ def data_prep(sub):
     return specialty, set(data)
 
 
-def call_llm(sub, model="accounts/fireworks/models/qwen3-30b-a3b-thinking-2507"):
+def call_llm(sub, model="accounts/fireworks/models/deepseek-v3p1"):
     json_model = ChatFireworks(
         model=model,
         temperature=0.0,
@@ -300,7 +300,7 @@ def call_llm(sub, model="accounts/fireworks/models/qwen3-30b-a3b-thinking-2507")
     end = time.time()
     elapsed = end - start
 
-    return full_response, elapsed
+    return full_response, elapsed, str(data)
 
 
 def extract_cn(html, form_type):
@@ -355,6 +355,7 @@ def transform_loop(df):
         "Primary_ICD10",
         "Secondary_Diagnoses",
         "Secondary_ICD10",
+        "Input",
     ]
     for col in cols:
         df[col] = None
@@ -364,7 +365,7 @@ def transform_loop(df):
         sub = df.loc[df["Episode_key"] == v]
         try:
             try:
-                answer, elapsed = call_llm(sub)
+                response, elapsed, data = call_llm(sub)
             except RateLimitError as e:
                 logger.error(e)
                 sleep_time = np.random.randint(60, 120)
@@ -372,32 +373,23 @@ def transform_loop(df):
                     f"Waiting {sleep_time} seconds before retrying due to rate limit"
                 )
                 time.sleep(sleep_time)
-                answer, elapsed = call_llm(sub)
+                response, elapsed = call_llm(sub)
             logger.debug(f"Response received in {elapsed:.2f} seconds for visit {v}")
-            response = processing_thoughts(answer)
-            response = response.replace("\n", "")
-            if response is None:
-                logger.debug(f"Processed response is none, before processing: {answer}")
-            elif response.strip() == "":
-                logger.debug(
-                    f"Processed response is empty string, before processing: {answer}"
-                )
             prim_diagnosis, prim_icd, sec_diagnosis, sec_icd = get_description(response)
             idx = df[df["Episode_key"] == v].index
             df.loc[idx, "Primary_Diagnosis"] = prim_diagnosis
             df.loc[idx, "Primary_ICD10"] = prim_icd
             df.loc[idx, "Secondary_Diagnoses"] = ",  ".join(sec_diagnosis)
             df.loc[idx, "Secondary_ICD10"] = ",  ".join(sec_icd)
+            df.loc[idx, "Input"] = data
 
         except Exception:
             logger.error(f"Error processing Episode {v}: {traceback.format_exc()}")
             failed_visits.append(v)
 
     logger.info(f"Failed Visits: {failed_visits}")
-    result = df[["Episode_key"] + cols].drop_duplicates(keep="last")
-    return result[
-        ~result["Episode_key"].isin(failed_visits)
-    ]  # df[df['Episode_key'].isin(failed_visits)]
+    result = df[["Episode_key", "VisitType"] + cols].drop_duplicates(keep="last")
+    return result[~result["Episode_key"].isin(failed_visits)]
 
 
 def generate_ep_key(visit_id):
