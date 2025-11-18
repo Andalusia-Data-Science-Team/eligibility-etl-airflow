@@ -11,6 +11,6 @@ ON CS.FormID=F.ID
 LEFT JOIN CN.ClinicalNote CN
 ON CN.VisitID = CS.VisitID
 WHERE CS.[StatusID] !=3 AND CS.ISDELETED=0
---AND CS.SignDate >= DATEADD(DAY, -2, CURRENT_TIMESTAMP)
+--AND CS.SignDate >= DATEADD(HOUR, -12, CURRENT_TIMESTAMP)
 AND CAST(CS.SignDate AS DATE) = CAST(GETDATE() - 1 AS DATE)
-AND CS.VisitClassificationEnName = 'Outpatient'
+AND CS.VisitClassificationEnName IN ('Outpatient', 'Inpatient', 'ER')

@@ -27,6 +27,7 @@ from src.utils import (
     extract_code,
     extract_outcome,
     extract_note,
+    find_keys,
     extract_allowedMoney,
     update_table,
 )
@@ -248,7 +249,11 @@ def eligibility_etl_pipeline():
         """Extract data with overlap handling to prevent data gaps"""
         try:
             source = "Replica"
-            query_path = Path(__file__).resolve().parent.parent / "sql" / "eligibility_enhanced.sql"
+            query_path = (
+                Path(__file__).resolve().parent.parent
+                / "sql"
+                / "eligibility_enhanced.sql"
+            )
             query = query_path.read_text()
             current_time = datetime.now()
             engine = get_conn_engine(source=source)
@@ -348,8 +353,9 @@ def eligibility_etl_pipeline():
             df["class"] = df["eligibility_response"].apply(extract_code)
             df["outcome"] = df["eligibility_response"].apply(extract_outcome)
             df["note"] = df["eligibility_response"].apply(extract_note)
-            df[["approval_limit", "copay_maximum"]] = df["eligibility_response"].apply(
-                lambda x: pd.Series(extract_allowedMoney(x))
+            df["parsed_results"] = df["eligibility_response"].apply(find_keys)
+            df[["approval_limit", "copay_maximum"]] = df["parsed_results"].apply(
+                lambda r: pd.Series(extract_allowedMoney(r))
             )
 
             # Apply business rules
