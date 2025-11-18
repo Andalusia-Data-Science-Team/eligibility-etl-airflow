@@ -29,7 +29,6 @@ for p in candidates:
         sys.path.append(str(p))
 # --- end path bootstrap ---
 
-from src.db import read_sql, cached_read, get_engines
 from src.components import kpi_row, info_box
 from src.AHJ_Claims import make_preds
 
@@ -68,6 +67,7 @@ def load_icd10_maps():
 
     # main maps
     code_to_name = {c: n for c, n in zip(df[code_col], df[name_col]) if c}
+
     # make the name lookup more forgiving
     def _norm_name(s: str) -> str:
         return " ".join(str(s).lower().split())
@@ -94,24 +94,25 @@ def resolve_icd10_pair(icd10_input: str, dx_input: str):
     icd10 = (icd10_input or "").strip().upper()
     dx    = (dx_input  or "").strip()
 
+    # 1) If ICD10 is provided and valid → trust it
     if icd10 and icd10 in code_to_name:
         return icd10, code_to_name[icd10]
 
+    # 2) If only DX name is given → try to map
     if dx:
         key = " ".join(dx.lower().split())
-        # try exact/normalized name
         if key in name_to_code:
             c = name_to_code[key]
             return c, code_to_name.get(c, dx)
-        # try a loose contains match on descriptions (fallback)
+        # loose contains match as fallback
         match = next((c for c, name in code_to_name.items() if key and key in name.lower()), None)
         if match:
             return match, code_to_name[match]
 
-    # if we get here: unknown; pass through raw user text
+    # 3) Fallback: pass through raw user text
     return icd10, dx
 
-# ===== Manual-entry helpers (diagnosis <-> ICD10 mapping) =====
+# ===== Manual-entry helpers (small static map just to help callbacks) =====
 ICD10_MAP = {
     "D50.9": "Iron deficiency anemia, unspecified",
     "G43.9": "Migraine, unspecified",
@@ -130,21 +131,20 @@ for _k, _v in {
     if _k not in st.session_state:
         st.session_state[_k] = _v
 
-def _on_dx_change():
-    """Auto-fill ICD10 when Diagnosis Name matches known mapping"""
-    name = (st.session_state.get("dx_name") or "").strip().lower()
-    code = DX_TO_ICD.get(name)
-    if code:
-        st.session_state.icd10 = code
-        st.session_state._last_filled = "dx"
+def _on_dx_pred():
+    """Auto-fill ICD10 for Predictions manual tab when Diagnosis changes."""
+    raw_name = st.session_state.get("dx_name_pred", "")
+    icd, dx = resolve_icd10_pair("", raw_name)
+    if icd:
+        st.session_state["icd10_pred"] = icd
 
-def _on_icd_change():
-    """Auto-fill Diagnosis Name when ICD10 matches known mapping"""
-    code = (st.session_state.get("icd10") or "").strip().upper()
-    name = ICD10_MAP.get(code)
-    if name:
-        st.session_state.dx_name = name
-        st.session_state._last_filled = "icd"
+def _on_icd_pred():
+    """Auto-fill Diagnosis for Predictions manual tab when ICD10 changes."""
+    raw_code = st.session_state.get("icd10_pred", "")
+    icd, dx = resolve_icd10_pair(raw_code, "")
+    if dx:
+        st.session_state["dx_name_pred"] = dx
+
 # ================= Streamlit Page =================
 # ---------------- Page Setup ----------------
 st.set_page_config(page_title="Predictions", page_icon="💊", layout="wide")
@@ -306,174 +306,50 @@ st.markdown(
 # ---------- Paths ----------
 HERE = Path(__file__).resolve()
 ROOT = HERE.parents[2] if (HERE.parent.name == "pages" and HERE.parents[1].name == "src") else HERE.parents[1]
-SQL_DIR = ROOT / "sql"
 DATA_DIR = ROOT / "data"
 
-# ---------- Fallback CSVs ----------
-HIST_CSV_CANDIDATES = [
-    DATA_DIR / "data/history_service_names.csv",
-    DATA_DIR / "history_service_names.csv",
-]
-
-def load_history_csv() -> Optional[pd.DataFrame]:
-    for p in HIST_CSV_CANDIDATES:
-        if p.exists():
-            try:
-                df = pd.read_csv(p, dtype=str, keep_default_na=False)
-                df.columns = [c.strip() for c in df.columns]
-                return df
-            except Exception as e:
-                st.error(f"Failed to read fallback CSV at {p}: {e}")
-                return None
-    return None
-
-def network_issue_box(where: str):
-    st.warning(
-        f"⚠️ We couldn’t reach the {where} database right now. "
-        f"This is often a temporary network or timeout issue.\n\n"
-        f"→ Falling back to a local snapshot CSV if available."
-    )
-
-# ---------- TABS ----------
-tab_history, tab_predict, tab_live = st.tabs(
-    [" Historical Records", " Predict One Visit", " Live Source"]
+# ---------- TABS (match Resubmission: Manual Entry + Validate on CSV) ----------
+tab_manual_entry, tab_csv_validate = st.tabs(
+    [" Manual Entry", " Validate on CSV"]
 )
 
-# === HISTORY ===
-with tab_history:
-    c1, c2 = st.columns([1.5, 1])
-    with c1:
-        visit_filter = st.text_input("Filter by Visit ID (optional)", placeholder="e.g., 715397")
-    with c2:
-        limit_rows = st.number_input("Max rows", min_value=100, max_value=100000, value=100)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    if st.button("Load Predictions", key="btn_hist"):
-        # Always load from CSV
-        df = load_history_csv()
-
-        if df is None or df.empty:
-            info_box("No history rows available.")
-        else:
-            # Normalize column names
-            cols_lower = [c.lower() for c in df.columns]
-            if "visitid" not in cols_lower and "visit_id" in cols_lower:
-                df.rename(columns={"visit_id": "VisitID"}, inplace=True)
-            if "medical_prediction" not in cols_lower and "Medical_Prediction" in df.columns:
-                pass
-            elif "prediction" in cols_lower:
-                df.rename(columns={"prediction": "Medical_Prediction"}, inplace=True)
-
-            # Apply optional filter
-            if visit_filter.strip():
-                df = df[df["VisitID"].astype(str) == visit_filter.strip()]
-
-            # Limit number of rows
-            df = df.head(int(limit_rows))
-
-            if df.empty:
-                info_box("No rows matched your filters.")
-            else:
-                rejected = (df["Medical_Prediction"] == "Rejected").sum() if "Medical_Prediction" in df.columns else 0
-                total = len(df)
-                kpi_row([("History rows", total), ("Rejected", rejected), ("Approved", total - rejected)])
-                st.dataframe(df, use_container_width=True)
-                st.caption("Showing local snapshot.")
-                
-# === PREDICT ONE ===
-with tab_predict:
-    st.caption("Generate a new prediction for a Visit ID.")
-
-    # Input only (no 'show source' checkbox)
-    vcol = st.columns([3])[0]
-    with vcol:
-        visit_id = st.text_input("Visit ID (required)", placeholder="Enter a Visit ID to score")
-
-    if st.button("Run predictions now", key="btn_predict"):
-        if not visit_id.strip():
-            st.error("⚠️ You must enter a Visit ID before running predictions.")
-        else:
-            params = {"vid": visit_id.strip()}
-            try:
-                with st.spinner("Loading visit data..."):
-                    src = read_sql("REPLICA", """
-SELECT DISTINCT
-    VS.VisitID, VC.EnName AS Visit_Type, V.MainSpecialityEnName AS PROVIDER_DEPARTMENT,
-    G.EnName AS PATIENT_GENDER, DATEDIFF(YEAR, PA.DateOfBirth, GETDATE()) AS AGE,VS.id as VisitServiceID,
-    VS.ClaimDate AS Creation_Date, VS.UpdatedDate AS Updated_Date, VS.ServiceEnName AS [Service_Name], VS.Quantity,
-    PCD.ICDDiagnoseNames AS DIAGNOS_NAME, PCD.ICDDiagnoseCodes AS ICD10, PCD.ProblemNote,
-    PCD.ICDDiagnoseNames AS Diagnose,
-    CC.ChiefComplaintNotes AS CHIEF_COMPLAINT, CC.ChiefComplaintNotes AS Chief_Complaint,
-    SAS.Symptoms
-FROM VisitMgt.VisitService AS VS
-LEFT JOIN VisitMgt.Visit AS V ON VS.VisitID = V.ID
-LEFT JOIN VISITMGT.SLKP_visitclassification VC ON V.VisitClassificationID = VC.ID
-LEFT JOIN MPI.Patient PA ON PA.ID = V.PatientID
-LEFT JOIN MPI.SLKP_Gender G ON PA.GenderID = G.ID
-LEFT JOIN VisitMgt.VisitFinincailInfo AS VFI ON VFI.VisitID = VS.VisitID
-LEFT JOIN PatPrlm.ChiefComplaint CC ON CC.VisitID = VS.VisitID
-LEFT JOIN (
-    SELECT VISITID,
-           STRING_AGG(PCD.ICDDiagnoseName, ' , ') AS ICDDiagnoseNames,
-           STRING_AGG(PCD.ICDDiagnoseCode, ' , ') AS ICDDiagnoseCodes,
-           STRING_AGG(PC.Note, ' , ') AS ProblemNote
-    FROM Patprlm.ProblemCard AS PC
-    LEFT JOIN Patprlm.ProblemCardDetail PCD ON PC.ID = PCD.ProblemCardID
-    GROUP BY VISITID
-) AS PCD ON PCD.VisitID = VS.VisitID
-LEFT JOIN (
-    SELECT VISITID, STRING_AGG(SS.SignAndSymptomNotes, ',') AS Symptoms
-    FROM [PatPrlm].[SignsAndSymptoms] SS
-    GROUP BY VISITID
-) AS SAS ON VS.VISITID = SAS.VISITID
-WHERE V.VisitStatusID != 3 AND VC.EnName != 'Ambulatory' AND VS.IsDeleted = 0
-  AND VS.CompanyShare > 0 AND VFI.ContractTypeID = 1 AND VS.VisitID = :vid
-""", params)
-
-                if src.empty:
-                    info_box(f"No rows found on Replica for VisitID {visit_id}.")
-                else:
-                    with st.spinner(f"Scoring services for VisitID {visit_id}..."):
-                        history_df = make_preds(src)
-
-                    if history_df is None or history_df.empty:
-                        info_box("produced no rows.")
-                    else:
-                        rejected = (history_df["Medical_Prediction"] == "Rejected").sum()
-                        total = len(history_df)
-                        kpi_row([
-                            ("Scored services", total),
-                            ("Rejected", rejected),
-                            ("Approved", total - rejected),
-                        ])
-                        st.dataframe(history_df, use_container_width=True)
-            except Exception:
-                network_issue_box("live")
-
-
-# === LIVE (manual entry; no DB) ===
-with tab_live:
+# === TAB 1: Manual Entry (minimal required fields → make_preds) ===
+with tab_manual_entry:
     st.caption("Enter the required fields manually and run a prediction.")
 
-    with st.form("live_manual_pred"):
-        c1, c2 = st.columns(2)
+    # Only the *prediction-relevant* fields (no rejection reason etc.)
+    c1, c2 = st.columns(2)
 
-        with c1:
-            service_name = st.text_input("Service Name (required)", placeholder="e.g., Ferritin")
-            dx_name      = st.text_input("Diagnosis Name (required)", key="dx_name_pred", placeholder="e.g., Iron deficiency anemia")
-            chief_complaint = st.text_input("Chief Complaint (required)", placeholder="e.g., Fatigue and pallor")
-            qty          = st.number_input("Quantity", min_value=1, value=1, step=1)
-            age          = st.number_input("Age", min_value=0, value=30, step=1)
+    with c1:
+        service_name = st.text_input("Service Name (required)", placeholder="e.g., Ferritin")
+        dx_name = st.text_input(
+            "Diagnosis Name (required)",
+            key="dx_name_pred",
+            placeholder="e.g., Iron deficiency anemia",
+            on_change=_on_dx_pred,  # auto-fill ICD10 when DX changes
+        )
+        chief_complaint = st.text_input("Chief Complaint (required)", placeholder="e.g., Fatigue and pallor")
+        qty = st.number_input("Quantity", min_value=1, value=1, step=1)
+        age = st.number_input("Age", min_value=0, value=30, step=1)
 
-        with c2:
-            icd10        = st.text_input("ICD10 Code (required)", key="icd10_pred", placeholder="e.g., D50.9")
-            symptoms     = st.text_input("Symptoms (optional)", placeholder="comma-separated…")
+    with c2:
+        icd10 = st.text_input(
+            "ICD10 Code (required)",
+            key="icd10_pred",
+            placeholder="e.g., D50.9",
+            on_change=_on_icd_pred,  # auto-fill DX when ICD10 changes
+        )
+        symptoms = st.text_input("Symptoms (optional)", placeholder="comma-separated…")
 
-        run_pred = st.form_submit_button("Run Prediction")
+    run_pred = st.button("Run Prediction", key="run_manual_pred")
 
     if run_pred:
-        # Resolve ICD10 <-> Diagnosis
-        icd10_final, dx_final = resolve_icd10_pair(icd10, dx_name)
+        # Read the *current* mapped values from session_state
+        dx_input = st.session_state.get("dx_name_pred", dx_name)
+        icd10_input = st.session_state.get("icd10_pred", icd10)
+
+        # Final consistency pass using full ICD10 table
+        icd10_final, dx_final = resolve_icd10_pair(icd10_input, dx_input)
 
         # Validate requireds
         missing = []
@@ -519,8 +395,76 @@ with tab_live:
                 rejected = (history_df["Medical_Prediction"] == "Rejected").sum() if "Medical_Prediction" in history_df else 0
                 total = len(history_df)
                 kpi_row([("Scored services", total), ("Rejected", rejected), ("Approved", total - rejected)])
-                st.dataframe(history_df, use_container_width=True)
+                st.dataframe(history_df, width="stretch")
 
+# === TAB 2: Validate on CSV (upload CSV → pick VisitID → make_preds) ===
+with tab_csv_validate:
+    st.caption("Upload a CSV of visit rows, pick a Visit ID, and run the prediction on those rows.")
+
+    uploaded_file = st.file_uploader(
+        "Upload CSV (should contain VisitID + the columns used by the prediction model)",
+        type=["csv"],
+        key="pred_csv_validate_uploader",
+    )
+
+    df_ids = pd.DataFrame()
+
+    if uploaded_file is not None:
+        try:
+            df_ids = pd.read_csv(uploaded_file, dtype=str, keep_default_na=False)
+        except Exception as e:
+            st.error(f"Could not read CSV: {e}")
+            df_ids = pd.DataFrame()
+
+    if df_ids.empty:
+        info_box("Upload a CSV above to begin.")
+    else:
+        # Decide which column to treat as VisitID
+        visit_col = "VisitID" if "VisitID" in df_ids.columns else df_ids.columns[0]
+        visit_choices = sorted(df_ids[visit_col].astype(str).unique().tolist())
+
+        pick_col, opt_col = st.columns([2, 1])
+        with pick_col:
+            sel_visit = st.selectbox(
+                f"Select Visit ID from '{visit_col}' column",
+                options=visit_choices,
+                key="pred_csv_visit_select",
+            )
+        with opt_col:
+            show_src = st.checkbox("Show source row(s)", value=False, key="pred_csv_show_src")
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        if st.button("Run Prediction on this Visit", key="pred_csv_run_btn"):
+            vid = sel_visit.strip()
+            if not vid:
+                st.error("Please select a Visit ID.")
+            else:
+                # 1) Extract visit rows from the uploaded CSV itself
+                src = df_ids[df_ids[visit_col].astype(str) == vid].copy()
+
+                if src.empty:
+                    info_box("No rows found in CSV for that Visit.")
+                else:
+                    if show_src:
+                        st.subheader("Source Row(s) from uploaded CSV")
+                        st.dataframe(src, width="stretch")
+
+                    # 2) Run prediction model
+                    try:
+                        with st.spinner(f"Scoring services for VisitID {vid}…"):
+                            history_df = make_preds(src)
+                    except Exception as e:
+                        st.error(f"Prediction pipeline failed: {e}")
+                        history_df = None
+
+                    if history_df is None or history_df.empty:
+                        info_box("No prediction rows produced.")
+                    else:
+                        rejected = (history_df["Medical_Prediction"] == "Rejected").sum() if "Medical_Prediction" in history_df else 0
+                        total = len(history_df)
+                        kpi_row([("Scored services", total), ("Rejected", rejected), ("Approved", total - rejected)])
+                        st.dataframe(history_df, width="stretch")
 
 # ---------- Footer ----------
 st.markdown(

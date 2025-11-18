@@ -44,7 +44,13 @@ def load_icd10_maps():
     for p in ICD10_PATHS:
         try:
             if p.exists():
-                df = _pd.read_csv(p, dtype=str, keep_default_na=False, encoding="utf-8", on_bad_lines="skip")
+                df = _pd.read_csv(
+                    p,
+                    dtype=str,
+                    keep_default_na=False,
+                    encoding="utf-8",
+                    on_bad_lines="skip",
+                )
                 break
         except Exception as e:
             errs.append(f"{p}: {e}")
@@ -61,6 +67,7 @@ def load_icd10_maps():
 
     # main maps
     code_to_name = {c: n for c, n in zip(df[code_col], df[name_col]) if c}
+
     # make the name lookup more forgiving
     def _norm_name(s: str) -> str:
         return " ".join(str(s).lower().split())
@@ -68,6 +75,7 @@ def load_icd10_maps():
     name_to_code = {}
     for c, n in code_to_name.items():
         name_to_code.setdefault(_norm_name(n), c)
+
     # also add a few alias forms without punctuation
     import re as _re
     for n, c in list(name_to_code.items()):
@@ -76,6 +84,7 @@ def load_icd10_maps():
             name_to_code[alias] = c
 
     return code_to_name, name_to_code
+
 
 def resolve_icd10_pair(icd10_input: str, dx_input: str):
     """
@@ -87,57 +96,59 @@ def resolve_icd10_pair(icd10_input: str, dx_input: str):
     icd10 = (icd10_input or "").strip().upper()
     dx    = (dx_input  or "").strip()
 
+    # 1) If valid ICD10 is given, trust it
     if icd10 and icd10 in code_to_name:
         return icd10, code_to_name[icd10]
 
+    # 2) Try to resolve from diagnosis name
     if dx:
         key = " ".join(dx.lower().split())
-        # try exact/normalized name
+
+        # exact / normalized match
         if key in name_to_code:
             c = name_to_code[key]
             return c, code_to_name.get(c, dx)
-        # try a loose contains match on descriptions (fallback)
-        match = next((c for c, name in code_to_name.items() if key and key in name.lower()), None)
+
+        # loose "contains" match
+        match = next(
+            (c for c, name in code_to_name.items() if key and key in name.lower()),
+            None,
+        )
         if match:
             return match, code_to_name[match]
 
-    # if we get here: unknown; pass through raw user text
+    # 3) Fallback: unknown, return what the user typed
     return icd10, dx
 
-# ===== Manual-entry helpers (diagnosis <-> ICD10 mapping) =====
-ICD10_MAP = {
-    "D50.9": "Iron deficiency anemia, unspecified",
-    "G43.9": "Migraine, unspecified",
-    "J06.9": "Acute upper respiratory infection, unspecified",
-    "E11.9": "Type 2 diabetes mellitus without complications",
-    "I10":   "Essential (primary) hypertension",
-}
-DX_TO_ICD = {v.lower(): k for k, v in ICD10_MAP.items()}
 
-# Initialize state keys for sync
-for _k, _v in {
-    "dx_name": "",
-    "icd10": "",
-    "_last_filled": "",
-}.items():
+# --- Callbacks specifically for the Manual Entry tab (ICD10 <-> Diagnosis sync) ---
+
+# Make sure the resub keys exist in session_state
+for _k in ("dx_name_resub", "icd10_resub"):
     if _k not in st.session_state:
-        st.session_state[_k] = _v
+        st.session_state[_k] = ""
 
-def _on_dx_change():
-    """Auto-fill ICD10 when Diagnosis Name matches known mapping"""
-    name = (st.session_state.get("dx_name") or "").strip().lower()
-    code = DX_TO_ICD.get(name)
+def _on_dx_resub():
+    """When Diagnosis Name changes, auto-fill ICD10 using the full ICD10 table."""
+    name = (st.session_state.get("dx_name_resub") or "").strip()
+    if not name:
+        return
+    code, resolved_name = resolve_icd10_pair("", name)
     if code:
-        st.session_state.icd10 = code
-        st.session_state._last_filled = "dx"
+        st.session_state["icd10_resub"] = code
+    if resolved_name:
+        st.session_state["dx_name_resub"] = resolved_name
 
-def _on_icd_change():
-    """Auto-fill Diagnosis Name when ICD10 matches known mapping"""
-    code = (st.session_state.get("icd10") or "").strip().upper()
-    name = ICD10_MAP.get(code)
+def _on_icd_resub():
+    """When ICD10 changes, auto-fill Diagnosis Name using the full ICD10 table."""
+    code = (st.session_state.get("icd10_resub") or "").strip()
+    if not code:
+        return
+    resolved_code, name = resolve_icd10_pair(code, "")
+    if resolved_code:
+        st.session_state["icd10_resub"] = resolved_code
     if name:
-        st.session_state.dx_name = name
-        st.session_state._last_filled = "icd"
+        st.session_state["dx_name_resub"] = name
 
 # ---------------- Page Setup ----------------
 st.set_page_config(page_title="Resubmission", page_icon="💊", layout="wide")
@@ -277,34 +288,6 @@ ROOT = HERE.parents[2] if (HERE.parent.name == "pages" and HERE.parents[1].name 
 SQL_DIR = ROOT / "sql"
 
 # ---------- Helpers ----------
-# --- SQL safety helpers ---
-
-def _normalize_cte(sql_text: str) -> str:
-    """Ensure queries that begin with WITH are prefixed by a semicolon."""
-    s = sql_text.lstrip()
-    if re.match(r"^WITH\b", s, flags=re.I):
-        # add ; before the first non-space WHEN the query starts with WITH
-        leading = sql_text[:len(sql_text) - len(s)]
-        return leading + ";" + s
-    return sql_text
-
-def _sanitize_sql(sql_text: str) -> str:
-    """Fix common authoring artifacts that break SQL Server."""
-    s = sql_text
-
-    # 1) Remove accidental 'XX ' markers (seen before I.ResponseReason)
-    s = re.sub(r"\bXX\s+(?=[A-Za-z_]\w*\.)", "", s)
-
-    # 2) Replace Unicode em/en dashes with normal hyphen (don’t create comments)
-    s = s.replace("—", "-").replace("–", "-")
-
-    # 3) Normalize Windows smart quotes if present
-    s = s.replace("’", "'").replace("“", '"').replace("”", '"')
-
-    # 4) Keep CTEs safe
-    s = _normalize_cte(s)
-
-    return s
 
 class UiLogger:
     def info(self, msg): st.info(str(msg))
@@ -312,18 +295,6 @@ class UiLogger:
     def debug(self, msg): st.caption(str(msg))
 ui_logger = UiLogger()
 
-def fetch_single_visit_from_replica(visit_id: str) -> pd.DataFrame:
-    raw = (SQL_DIR / "resubmission.sql").read_text(encoding="utf-8")
-    sql = _sanitize_sql(raw)  # ✅ sanitize + CTE-safe
-
-    # add WHERE VisitID = :vid if missing
-    visit_col = "REQ.VisitID" if re.search(r"\bREQ\.VisitID\b", sql, flags=re.I) else "VisitID"
-    if re.search(r"\bWHERE\b", sql, flags=re.I):
-        sql += f"\nAND {visit_col} = :vid"
-    else:
-        sql += f"\nWHERE {visit_col} = :vid"
-
-    return read_sql("REPLICA", sql, {"vid": str(visit_id)})
 
 def run_llm_and_show(df: pd.DataFrame, visit_id: str):
     with st.spinner(f"Generating justifications for Visit {visit_id}…"):
@@ -347,7 +318,6 @@ tab_manual_entry, tab_csv_validate = st.tabs(
     [" Manual Entry", " Validate on CSV"]
 )
 
-# === TAB 1: Manual Entry (old Live source manual-entry logic) ===
 with tab_manual_entry:
     st.caption("Enter the required fields manually and create a justification.")
 
@@ -357,63 +327,81 @@ with tab_manual_entry:
         "AD-1-4": "Diagnosis is inconsistent with service/procedure",
         "AD-3-5": "Diagnosis is inconsistent with patient's age",
     }
-    reason_labels = ["(choose…)", *[REASONS[k] for k in ["MN-1-1","AD-1-4","AD-3-5"]], "Other (free text)"]
+    reason_labels = ["(choose…)", *[REASONS[k] for k in ["MN-1-1", "AD-1-4", "AD-3-5"]]]
 
-    with st.form("live_manual_resub"):
-        c1, c2 = st.columns(2)
+    # --- Inputs ---
+    c1, c2 = st.columns(2)
 
-        with c1:
-            service_name = st.text_input("Service Name (required)", placeholder="e.g., Ferritin")
-            dx_name      = st.text_input("Diagnosis Name (required)", key="dx_name_resub", placeholder="e.g., Iron deficiency anemia")
-            chief_complaint = st.text_input("Chief Complaint (required)", placeholder="e.g., Fatigue and pallor")
-            qty          = st.number_input("Quantity", min_value=1, value=1, step=1)
-            age          = st.number_input("Age", min_value=0, value=30, step=1)
+    with c1:
+        service_name = st.text_input("Service Name (required)", placeholder="e.g., Ferritin")
+        dx_name = st.text_input(
+            "Diagnosis Name (required)",
+            key="dx_name_resub",
+            placeholder="e.g., Iron deficiency anemia",
+            on_change=_on_dx_resub,
+        )
+        chief_complaint = st.text_input("Chief Complaint (required)", placeholder="e.g., Fatigue and pallor")
+        age = st.number_input("Age", min_value=0, value=30, step=1)
 
-        with c2:
-            icd10        = st.text_input("ICD10 Code (required)", key="icd10_resub", placeholder="e.g., D50.9")
-            symptoms     = st.text_input("Symptoms (optional)", placeholder="comma-separated…")
-            reason_choice = st.selectbox("Rejection Reason (description)", options=reason_labels, index=0)
-            free_reason  = st.text_input("Reason (optional if code chosen)", placeholder="If you picked a code, this can be empty")
+    with c2:
+        icd10 = st.text_input(
+            "ICD10 Code (required)",
+            key="icd10_resub",
+            placeholder="e.g., D50.9",
+            on_change=_on_icd_resub,
+        )
+        symptoms = st.text_input("Symptoms (optional)", placeholder="comma-separated…")
+        reason_choice = st.selectbox("Rejection Reason (description)",options=reason_labels, index=0)
 
-        run_just = st.form_submit_button("Run Justification")
+    # Submit button
+    run_just = st.button("Run Justification", key="run_manual_just")
 
     if run_just:
-        # Map chosen description -> code (if any)
+        # Read the *current* mapped values from session_state
+        dx_input = st.session_state.get("dx_name_resub", dx_name)
+        icd10_input = st.session_state.get("icd10_resub", icd10)
+
+        # Final ICD10 consistency
+        icd10_final, dx_final = resolve_icd10_pair(icd10_input, dx_input)
+
+        # --- Validate required fields ---
+        missing = []
+        if not service_name.strip():
+            missing.append("Service Name")
+        if not dx_final.strip():
+            missing.append("Diagnosis Name / ICD10")
+        if not icd10_final.strip():
+            missing.append("ICD10")
+        if not chief_complaint.strip():
+            missing.append("Chief Complaint")
+        if age is None:
+            missing.append("Age")
+
+        # Map chosen description -> code
         selected_code = ""
-        if reason_choice and reason_choice != "(choose…)" and reason_choice != "Other (free text)":
-            # reverse lookup
+        reason_merged = ""
+
+        if reason_choice == "(choose…)":
+            missing.append("Rejection Reason")
+
+        elif reason_choice in REASONS.values():
+            # They selected a known code
             for code, desc in REASONS.items():
                 if desc == reason_choice:
                     selected_code = code
+                    reason_merged = desc
                     break
 
-        # Resolve ICD10 <-> Diagnosis
-        icd10_final, dx_final = resolve_icd10_pair(icd10, dx_name)
-
-        # Validate
-        missing = []
-        if not service_name.strip(): missing.append("Service Name")
-        if not dx_final.strip():     missing.append("Diagnosis Name / ICD10")
-        if not icd10_final.strip():  missing.append("ICD10")
-        if not chief_complaint.strip(): missing.append("Chief Complaint")
-        if age is None: missing.append("Age")
-        if qty is None: missing.append("Quantity")
-        if not selected_code and not free_reason.strip():
-            missing.append("Rejection Reason (pick a code or type a reason)")
+        elif reason_choice == "Other (free text)":
+            missing.append("Other reason is not supported now (free text removed — choose an official reason)")
 
         if missing:
             st.error("Please fill: " + ", ".join(missing))
         else:
             now = datetime.now()
-            reason_text = REASONS.get(selected_code, "").strip()
-            # If user typed something, append it (or use it if no code)
-            if free_reason.strip():
-                reason_merged = f"{reason_text} — {free_reason.strip()}" if reason_text else free_reason.strip()
-            else:
-                reason_merged = reason_text
 
-            # Build one-row DF for transform_loop()
-            row = {
+            # ---------- INTERNAL full row for LLM ----------
+            llm_row = {
                 "RequestTransactionID": f"MAN-{now.strftime('%Y%m%d%H%M%S')}",
                 "VisitID":              f"MAN-{now.strftime('%Y%m%d')}",
                 "VisitStartDate":       now,
@@ -430,176 +418,190 @@ with tab_manual_entry:
                 "Note":                 "",
                 "Reason":               reason_merged,
                 "ResponseReasonCode":   selected_code or "Manual",
-                "VisitServiceID":       f"VS-{now.strftime('%H%M%S%f')}",
+                "VisitServiceID":       int(now.strftime("%H%M%S%f")),
                 "Diagnosis":            dx_final,
                 "ICD10":                icd10_final,
                 "ProblemNote":          "",
                 "Chief_Complaint":      chief_complaint.strip(),
                 "Symptoms":             symptoms.strip(),
             }
-            src = pd.DataFrame([row])
 
-            with st.spinner("Generating justification for the manual entry…"):
-                result = transform_loop(src, ui_logger)
+            src_llm = pd.DataFrame([llm_row])
+
+            # ---------- Run LLM ----------
+            try:
+                with st.spinner("Generating justification for the manual entry…"):
+                    result = transform_loop(src_llm, ui_logger)
+            except Exception as e:
+                st.error(f"LLM pipeline failed: {e}")
+                result = None
 
             if result is None or result.empty:
                 info_box("LLM produced no rows.")
             else:
-                # Keep the same columns as our src, add Justification at the end
-                merged = src.copy()
-                # attach Justification by VisitServiceID if present
-                key_src = "VisitServiceID" if "VisitServiceID" in merged.columns else None
-                key_res = next((k for k in ["VisitServiceID","Service_id","ItemId","service_id"] if k in result.columns), None)
-                just_col = next((j for j in ["Justification","justification"] if j in result.columns), None)
-                if key_src and key_res and just_col:
-                    r = result[[key_res, just_col]].rename(columns={key_res: "__k__", just_col: "Justification"}).drop_duplicates()
-                    merged["__k__"] = merged[key_src]
-                    merged = merged.merge(r, on="__k__", how="left").drop(columns="__k__", errors="ignore")
-                else:
-                    merged["Justification"] = ""
+                needed_cols = [
+                    "Age",
+                    "Service_Name",
+                    "Status",
+                    "Reason",
+                    "Diagnosis",
+                    "ICD10",
+                    "Chief_Complaint",
+                    "Symptoms",
+                ]
+                display_cols = [c for c in needed_cols if c in result.columns]
+                if "Justification" in result.columns:
+                    display_cols.append("Justification")
 
-                base_cols = list(src.columns)
-                extras = [c for c in merged.columns if c not in base_cols and c != "Justification"]
-                final_cols = base_cols + extras + (["Justification"] if "Justification" in merged.columns else [])
-                merged = merged.reindex(columns=final_cols)
+                merged = result[display_cols].copy()
 
                 st.subheader("Justification Result")
-                st.dataframe(merged, use_container_width=True)
+                st.dataframe(merged, width="stretch")
 
                 c1, _ = st.columns(2)
                 with c1:
                     st.download_button(
                         "⬇ Download PDF",
-                        data=render_pdf(merged, merged.loc[0, "VisitID"]),
-                        file_name=f"resubmission_{merged.loc[0, 'VisitID']}.pdf",
+                        data=render_pdf(merged, "MANUAL"),
+                        file_name="resubmission_manual.pdf",
                         mime="application/pdf",
                     )
 
-# === TAB 2: Validate on CSV (upload CSV → pick VisitID → REPLICA + LLM) ===
+
+# === TAB 2: Validate on CSV (upload CSV → pick VisitID → CSV + LLM) ===
 with tab_csv_validate:
-    st.caption("Upload a CSV of Visit IDs, pick one, fetch from REPLICA, and generate justifications.")
 
     uploaded_file = st.file_uploader(
-        "Upload CSV (first column should be VisitID list)",
+        "Upload CSV (first column should contain VisitID or have a VisitID column)",
         type=["csv"],
         key="csv_validate_uploader",
     )
 
+    df_ids = pd.DataFrame()
+
     if uploaded_file is not None:
         try:
+            # Load full CSV – this is now the ONLY source for LLM
             df_ids = pd.read_csv(uploaded_file, dtype=str, keep_default_na=False)
         except Exception as e:
             st.error(f"Could not read CSV: {e}")
             df_ids = pd.DataFrame()
 
-        if df_ids.empty:
-            info_box("The uploaded CSV has no rows.")
-        else:
-            first_col = df_ids.columns[0]
-            visit_choices = sorted(df_ids[first_col].astype(str).unique().tolist())
+    if df_ids.empty:
+        info_box("Upload a CSV above to begin.")
+    else:
+        # Decide which column to treat as VisitID
+        visit_col = "VisitID" if "VisitID" in df_ids.columns else df_ids.columns[0]
+        visit_choices = sorted(df_ids[visit_col].astype(str).unique().tolist())
 
-            pick_col, opt_col = st.columns([2, 1])
-            with pick_col:
-                sel_visit = st.selectbox(
-                    f"Select Visit ID from '{first_col}' column",
-                    options=visit_choices,
-                    key="csv_visit_select",
-                )
-            with opt_col:
-                show_src = st.checkbox("Show fetched source rows", value=False)
+        pick_col, opt_col = st.columns([2, 1])
+        with pick_col:
+            sel_visit = st.selectbox(
+                f"Select Visit ID from '{visit_col}' column",
+                options=visit_choices,
+                key="csv_visit_select",
+            )
+        
+        st.markdown('</div>', unsafe_allow_html=True)
 
-            st.markdown('</div>', unsafe_allow_html=True)
+        if st.button("Run Validation", key="csv_run_validation_btn"):
+            vid = sel_visit.strip()
+            if not vid:
+                st.error("Please select a Visit ID.")
+            else:
+                # 1) Extract visit rows from the uploaded CSV itself
+                src = df_ids[df_ids[visit_col].astype(str) == vid].copy()
 
-            if st.button("Run Validation", key="csv_run_validation_btn"):
-                vid = sel_visit.strip()
-                if not vid:
-                    st.error("Please select a Visit ID.")
+                if src.empty:
+                    info_box("No rows found in CSV for that Visit.")
                 else:
+                    # IMPORTANT: normalize VisitServiceID dtype to avoid int64/object merge error
+                    if "VisitServiceID" in src.columns:
+                        # Coerce to numeric so LLM/output side (usually numeric) matches
+                        src["VisitServiceID"] = pd.to_numeric(src["VisitServiceID"], errors="coerce")
+
+
+                    # 2) LLM processing
                     try:
-                        src = fetch_single_visit_from_replica(vid)
-                        if not src.empty and "VisitID" in src.columns:
-                            src = src[src["VisitID"].astype(str) == vid]
-
-                        if src.empty:
-                            info_box("No rows found on REPLICA for that Visit.")
-                        else:
-                            if show_src:
-                                st.subheader("Source Row(s) from REPLICA")
-                                st.dataframe(src, use_container_width=True)
-
-                            # --- Run LLM on the same rows ---
-                            with st.spinner(f"Generating justifications for Visit {vid}…"):
-                                result = transform_loop(src, ui_logger)
-
-                            # --- Start from the REPLICA table EXACTLY as-is ---
-                            merged = src.copy()
-                            base_cols = list(src.columns)  # preserve exact order
-
-                            # Small helper to find first matching column name
-                            def _pick(df, names):
-                                for n in names:
-                                    if n in df.columns:
-                                        return n
-                                return None
-
-                            # --- Attach LLM Justification by VisitServiceID/Service_id if present ---
-                            if isinstance(result, pd.DataFrame) and not result.empty:
-                                key_src = _pick(src,    ["VisitServiceID", "Service_id", "ItemId", "service_id"])
-                                key_res = _pick(result, ["VisitServiceID", "Service_id", "ItemId", "service_id"])
-                                just_col = _pick(result, ["Justification", "justification"])
-                                if key_src and key_res and just_col:
-                                    right = (
-                                        result[[key_res, just_col]]
-                                        .rename(columns={key_res: "__key__", just_col: "Justification"})
-                                        .drop_duplicates()
-                                    )
-                                    merged["__key__"] = merged[key_src]
-                                    merged = merged.merge(right, on="__key__", how="left")
-                                    merged.drop(columns="__key__", inplace=True, errors="ignore")
-                                else:
-                                    merged["Justification"] = ""
-                            else:
-                                merged["Justification"] = ""
-
-                            # --- Build user-friendly Reason from ResponseReasonCode + Reason ---
-                            REASON_MAP = {
-                                "MN-1-1": "Service is not clinically justified based on clinical practice guideline, without additional supporting diagnosis",
-                                "AD-1-4": "Diagnosis is inconsistent with service/procedure",
-                                "AD-3-5": "Diagnosis is inconsistent with patient's age",
-                            }
-                            def _merge_reason(row):
-                                code = str(row.get("ResponseReasonCode", "") or "").strip()
-                                reason = str(row.get("Reason", "") or "").strip()
-                                mapped = REASON_MAP.get(code, code) if code else ""
-                                parts = []
-                                if mapped:
-                                    parts.append(mapped)
-                                if reason and reason.lower() not in mapped.lower():
-                                    parts.append(reason)
-                                return " — ".join(parts) if parts else ""
-                            if "Reason" in merged.columns or "ResponseReasonCode" in merged.columns:
-                                merged["Reason"] = merged.apply(_merge_reason, axis=1)
-                                merged.drop(columns=["ResponseReasonCode"], inplace=True, errors="ignore")
-
-                            # --- Final columns: EXACTLY Replica columns + Justification LAST ---
-                            extras = [c for c in merged.columns if c not in base_cols and c != "Justification"]
-                            final_cols = base_cols + extras + (["Justification"] if "Justification" in merged.columns else [])
-                            merged = merged.reindex(columns=final_cols)
-
-                            # --- Show & Download ---
-                            st.subheader("Justification Result")
-                            st.dataframe(merged, use_container_width=True)
-
-                            c1, _ = st.columns(2)
-                            with c1:
-                                st.download_button(
-                                    "⬇ Download PDF",
-                                    data=render_pdf(merged, str(vid)),
-                                    file_name=f"resubmission_{vid}.pdf",
-                                    mime="application/pdf",
-                                )
+                        with st.spinner(f"Generating justifications for Visit {vid}…"):
+                            result = transform_loop(src, ui_logger)
                     except Exception as e:
-                        st.error(f"Replica error: {e}")
+                        st.error(f"LLM pipeline failed: {e}")
+                        result = None
+
+                    # 3) Merge LLM output back onto the CSV rows
+                    merged = src.copy()
+                    base_cols = list(src.columns)  # preserve original CSV order
+
+                    def _pick(df, names):
+                        for n in names:
+                            if n in df.columns:
+                                return n
+                        return None
+
+                    # Attach Justification by VisitServiceID / Service_id / ItemId if present
+                    if isinstance(result, pd.DataFrame) and not result.empty:
+                        key_src = _pick(src, ["VisitServiceID", "Service_id", "ItemId", "service_id"])
+                        key_res = _pick(result, ["VisitServiceID", "Service_id", "ItemId", "service_id"])
+                        just_col = _pick(result, ["Justification", "justification"])
+
+                        if key_src and key_res and just_col:
+                            right = (
+                                result[[key_res, just_col]]
+                                .rename(columns={key_res: "__key__", just_col: "Justification"})
+                                .drop_duplicates()
+                            )
+
+                            # Make sure merge key is comparable
+                            merged["__key__"] = merged[key_src].astype(str)
+                            right["__key__"] = right["__key__"].astype(str)
+
+                            merged = merged.merge(right, on="__key__", how="left")
+                            merged.drop(columns="__key__", inplace=True, errors="ignore")
+                        else:
+                            merged["Justification"] = ""
+                    else:
+                        merged["Justification"] = ""
+
+                    # 4) Merge Reason + ResponseReasonCode → human-friendly Reason
+                    REASON_MAP = {
+                        "MN-1-1": "Service is not clinically justified based on clinical practice guideline, without additional supporting diagnosis",
+                        "AD-1-4": "Diagnosis is inconsistent with service/procedure",
+                        "AD-3-5": "Diagnosis is inconsistent with patient's age",
+                    }
+
+                    def _merge_reason(row):
+                        code = str(row.get("ResponseReasonCode", "") or "").strip()
+                        reason = str(row.get("Reason", "") or "").strip()
+                        mapped = REASON_MAP.get(code, code) if code else ""
+                        parts = []
+                        if mapped:
+                            parts.append(mapped)
+                        if reason and reason.lower() not in mapped.lower():
+                            parts.append(reason)
+                        return " — ".join(parts) if parts else ""
+
+                    if "Reason" in merged.columns or "ResponseReasonCode" in merged.columns:
+                        merged["Reason"] = merged.apply(_merge_reason, axis=1)
+                        merged.drop(columns=["ResponseReasonCode"], inplace=True, errors="ignore")
+
+                    # 5) Keep original CSV column order; append Justification last
+                    extras = [c for c in merged.columns if c not in base_cols and c != "Justification"]
+                    final_cols = base_cols + extras + (["Justification"] if "Justification" in merged.columns else [])
+                    merged = merged.reindex(columns=final_cols)
+
+                    # 6) Show + Download
+                    st.subheader("Justification Result")
+                    st.dataframe(merged, use_container_width=True)
+
+                    c1, _ = st.columns(2)
+                    with c1:
+                        st.download_button(
+                            "⬇ Download PDF",
+                            data=render_pdf(merged, str(vid)),
+                            file_name=f"resubmission_{vid}.pdf",
+                            mime="application/pdf",
+                        )
 
 # ---------- Footer ----------
 st.markdown(
