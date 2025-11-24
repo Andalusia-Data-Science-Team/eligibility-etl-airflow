@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Tuple
 import re
 import pandas as pd
 import streamlit as st
@@ -25,100 +25,86 @@ from src.db import read_sql, cached_read
 from src.components import kpi_row, info_box
 from src.export import render_docx, render_pdf
 from src.resubmission_engine import transform_loop  # used by Manual/Live tabs only
-
-# ---------- ICD10 loader (shared) ----------
-from functools import lru_cache
-
-# put the CSV under your repo's /data if you like; keep a fallback to /mnt/data
-ICD10_PATHS = [
-    Path(__file__).resolve().parents[2] / "data" / "idc10_disease_full_data.csv",
-    Path("/mnt/data/idc10_disease_full_data.csv"),
-]
-
-@lru_cache(maxsize=1)
-def load_icd10_maps():
-    """Return (code->name, name->code) using the full ICD10 CSV."""
-    import pandas as _pd
-    df = None
-    errs = []
-    for p in ICD10_PATHS:
-        try:
-            if p.exists():
-                df = _pd.read_csv(
-                    p,
-                    dtype=str,
-                    keep_default_na=False,
-                    encoding="utf-8",
-                    on_bad_lines="skip",
-                )
-                break
-        except Exception as e:
-            errs.append(f"{p}: {e}")
-    if df is None or df.empty:
-        st.warning("ICD10 table not found/empty. Free-text will be used.")
-        return {}, {}
-
-    # CSV columns: diseaseCode, diseaseDescription, (…)
-    code_col = "diseaseCode" if "diseaseCode" in df.columns else df.columns[0]
-    name_col = "diseaseDescription" if "diseaseDescription" in df.columns else df.columns[1]
-
-    df[code_col] = df[code_col].astype(str).str.strip().str.upper()
-    df[name_col] = df[name_col].astype(str).str.strip()
-
-    # main maps
-    code_to_name = {c: n for c, n in zip(df[code_col], df[name_col]) if c}
-
-    # make the name lookup more forgiving
-    def _norm_name(s: str) -> str:
-        return " ".join(str(s).lower().split())
-
-    name_to_code = {}
-    for c, n in code_to_name.items():
-        name_to_code.setdefault(_norm_name(n), c)
-
-    # also add a few alias forms without punctuation
-    import re as _re
-    for n, c in list(name_to_code.items()):
-        alias = _re.sub(r"[^a-z0-9 ]+", "", n)
-        if alias and alias not in name_to_code:
-            name_to_code[alias] = c
-
-    return code_to_name, name_to_code
+from src.icd10_utils import resolve_icd10_pair   # ✅ shared ICD10 logic
 
 
-def resolve_icd10_pair(icd10_input: str, dx_input: str):
+# ---------- Datatype / format helpers ----------
+
+# Single ICD10 pattern: letter + 2 (or 2–3) alphanumerics, optional ".xxxx"
+_icd10_single_re = re.compile(r"^[A-Z][0-9][0-9A-Z](?:\.[0-9A-Z]{1,4})?$")
+
+def _validate_text_field(val: str, field_label: str, type_errors: List[str]) -> None:
     """
-    Given either/both of (icd10 code, diagnosis name) return a consistent (code, name).
-    Prefers explicit ICD10 if both provided.
+    Basic guard: field should not be *only* digits.
+    '1234' is rejected, but 'Class 3' or 'E11 diabetes' are ok.
     """
-    code_to_name, name_to_code = load_icd10_maps()
+    v = (val or "").strip()
+    if v and v.isdigit():
+        type_errors.append(f"{field_label} must be text, not just a number.")
 
-    icd10 = (icd10_input or "").strip().upper()
-    dx    = (dx_input  or "").strip()
+def _validate_icd10_codes(raw: str, field_label: str, type_errors: List[str]) -> None:
+    """
+    Ensure ICD10 input looks like valid code(s).
+    Accepts single code or comma-separated list:
+      'D50', 'E11.9', 'E11,E78.2,D50,D51'
+    """
+    raw = (raw or "").strip().upper()
+    if not raw:
+        return
 
-    # 1) If valid ICD10 is given, trust it
-    if icd10 and icd10 in code_to_name:
-        return icd10, code_to_name[icd10]
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    for p in parts:
+        if not _icd10_single_re.match(p):
+            type_errors.append(
+                f"{field_label}: '{p}' does not look like a valid ICD-10 code "
+                "(expected format like D50 or E11.9)."
+            )
 
-    # 2) Try to resolve from diagnosis name
-    if dx:
-        key = " ".join(dx.lower().split())
 
-        # exact / normalized match
-        if key in name_to_code:
-            c = name_to_code[key]
-            return c, code_to_name.get(c, dx)
+# ---------- ICD10 helper to support multiple codes (E11,E78.2,D50,D51, ...) ----------
 
-        # loose "contains" match
-        match = next(
-            (c for c, name in code_to_name.items() if key and key in name.lower()),
-            None,
-        )
-        if match:
-            return match, code_to_name[match]
+def resolve_icd10_multi(icd_input: str, dx_input: str) -> Tuple[str, str]:
+    """
+    Handle multiple ICD10 codes / diagnoses separated by commas.
+    Uses resolve_icd10_pair() per element and then joins back.
+    Example:
+      icd_input = 'E11,E78.2,D50,D51'
+      dx_input  = ''  (or matching count of names)
+    """
+    icd_input = icd_input or ""
+    dx_input = dx_input or ""
 
-    # 3) Fallback: unknown, return what the user typed
-    return icd10, dx
+    # Split codes on comma or whitespace
+    raw_codes = [c.strip().upper() for c in re.split(r"[,\s]+", icd_input) if c.strip()]
+    # Split names on comma only (to avoid breaking words too much)
+    raw_names = [n.strip() for n in dx_input.split(",") if n.strip()]
+
+    if not raw_codes and not raw_names:
+        return "", ""
+
+    n = max(len(raw_codes), len(raw_names), 1)
+    out_codes: List[str] = []
+    out_names: List[str] = []
+
+    for i in range(n):
+        c = raw_codes[i] if i < len(raw_codes) else ""
+        d = raw_names[i] if i < len(raw_names) else ""
+        c_res, d_res = resolve_icd10_pair(c, d)
+
+        # Prefer resolved values, fall back to what user typed
+        final_c = c_res or c
+        final_d = d_res or d
+
+        if final_c:
+            out_codes.append(final_c)
+        if final_d:
+            out_names.append(final_d)
+
+    # Join back as comma-separated lists
+    codes_str = ",".join(dict.fromkeys(out_codes))  # keep order, drop duplicates
+    names_str = ", ".join(out_names)
+
+    return codes_str, names_str
 
 
 # --- Callbacks specifically for the Manual Entry tab (ICD10 <-> Diagnosis sync) ---
@@ -129,26 +115,35 @@ for _k in ("dx_name_resub", "icd10_resub"):
         st.session_state[_k] = ""
 
 def _on_dx_resub():
-    """When Diagnosis Name changes, auto-fill ICD10 using the full ICD10 table."""
+    """
+    When Diagnosis Name changes, auto-fill ICD10 using the shared ICD10 utils.
+    Now supports multiple codes/names, e.g. 'Iron deficiency anemia, Diabetes'.
+    """
     name = (st.session_state.get("dx_name_resub") or "").strip()
     if not name:
         return
-    code, resolved_name = resolve_icd10_pair("", name)
-    if code:
-        st.session_state["icd10_resub"] = code
-    if resolved_name:
-        st.session_state["dx_name_resub"] = resolved_name
+    current_icd = st.session_state.get("icd10_resub", "")
+    codes_str, names_str = resolve_icd10_multi(current_icd, name)
+    if codes_str:
+        st.session_state["icd10_resub"] = codes_str
+    if names_str:
+        st.session_state["dx_name_resub"] = names_str
 
 def _on_icd_resub():
-    """When ICD10 changes, auto-fill Diagnosis Name using the full ICD10 table."""
+    """
+    When ICD10 changes, auto-fill Diagnosis Name using the shared ICD10 utils.
+    Now supports multiple codes, e.g. 'E11,E78.2,D50,D51'.
+    """
     code = (st.session_state.get("icd10_resub") or "").strip()
     if not code:
         return
-    resolved_code, name = resolve_icd10_pair(code, "")
-    if resolved_code:
-        st.session_state["icd10_resub"] = resolved_code
-    if name:
-        st.session_state["dx_name_resub"] = name
+    current_dx = st.session_state.get("dx_name_resub", "")
+    codes_str, names_str = resolve_icd10_multi(code, current_dx)
+    if codes_str:
+        st.session_state["icd10_resub"] = codes_str
+    if names_str:
+        st.session_state["dx_name_resub"] = names_str
+
 
 # ---------------- Page Setup ----------------
 st.set_page_config(page_title="Resubmission", page_icon="💊", layout="wide")
@@ -207,7 +202,7 @@ html, body, [data-testid="stAppViewContainer"] {{
   border:1px solid rgba(0,0,0,0.06);
   border-radius:16px;
   box-shadow:0 2px 6px rgba(0,0,0,0.06);
-  padding:1.1rem 1.4rem;
+  padding: 1.1rem 1.4rem;
   margin-bottom:.75rem;
 }}
 .header-title h1 {{
@@ -337,7 +332,7 @@ with tab_manual_entry:
         dx_name = st.text_input(
             "Diagnosis Name (required)",
             key="dx_name_resub",
-            placeholder="e.g., Iron deficiency anemia",
+            placeholder="e.g., Iron deficiency anemia or E11,E78.2,D50,D51",
             on_change=_on_dx_resub,
         )
         chief_complaint = st.text_input("Chief Complaint (required)", placeholder="e.g., Fatigue and pallor")
@@ -347,11 +342,11 @@ with tab_manual_entry:
         icd10 = st.text_input(
             "ICD10 Code (required)",
             key="icd10_resub",
-            placeholder="e.g., D50.9",
+            placeholder="e.g., D50.9 or E11,E78.2,D50,D51",
             on_change=_on_icd_resub,
         )
         symptoms = st.text_input("Symptoms (optional)", placeholder="comma-separated…")
-        reason_choice = st.selectbox("Rejection Reason (description)",options=reason_labels, index=0)
+        reason_choice = st.selectbox("Rejection Reason (description)", options=reason_labels, index=0)
 
     # Submit button
     run_just = st.button("Run Justification", key="run_manual_just")
@@ -361,11 +356,13 @@ with tab_manual_entry:
         dx_input = st.session_state.get("dx_name_resub", dx_name)
         icd10_input = st.session_state.get("icd10_resub", icd10)
 
-        # Final ICD10 consistency
-        icd10_final, dx_final = resolve_icd10_pair(icd10_input, dx_input)
+        # Final ICD10 consistency (supports multi-codes)
+        icd10_final, dx_final = resolve_icd10_multi(icd10_input, dx_input)
 
         # --- Validate required fields ---
-        missing = []
+        missing: List[str] = []
+        type_errors: List[str] = []
+
         if not service_name.strip():
             missing.append("Service Name")
         if not dx_final.strip():
@@ -395,8 +392,18 @@ with tab_manual_entry:
         elif reason_choice == "Other (free text)":
             missing.append("Other reason is not supported now (free text removed — choose an official reason)")
 
-        if missing:
-            st.error("Please fill: " + ", ".join(missing))
+        # --- Type / format checks ---
+        _validate_text_field(service_name, "Service Name", type_errors)
+        _validate_text_field(dx_final, "Diagnosis Name", type_errors)
+        _validate_text_field(chief_complaint, "Chief Complaint", type_errors)
+        _validate_text_field(symptoms, "Symptoms", type_errors)
+        _validate_icd10_codes(icd10_final, "ICD10", type_errors)
+
+        if missing or type_errors:
+            if missing:
+                st.error("Please fill: " + ", ".join(missing))
+            if type_errors:
+                st.error("Please fix type issues:\n- " + "\n- ".join(type_errors))
         else:
             now = datetime.now()
 
@@ -605,6 +612,6 @@ with tab_csv_validate:
 
 # ---------- Footer ----------
 st.markdown(
-    f'<p style="text-align:center;color:#94a3b8;margin-top:2rem">©️ {datetime.now().year} Claims Copilot</p>',
+    f'<p class="footer">©️ {datetime.now().year} Claims Copilot</p>',
     unsafe_allow_html=True,
 )
