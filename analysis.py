@@ -1,19 +1,22 @@
-import streamlit as st
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
+import streamlit as st
 
 # Set up base paths and logging configuration
 BASE_DIR = Path(__file__).resolve().parent
 
 
-st.set_page_config(page_title="Claims Predictions Performance Analysis", layout="centered")
-if st.button('Get Analysis'):
-    data = pd.read_csv(BASE_DIR / "etl_analysis.csv", parse_dates=['Date'])
+st.set_page_config(
+    page_title="Claims Predictions Performance Analysis", layout="centered"
+)
+if st.button("Get Analysis"):
+    data = pd.read_csv(BASE_DIR / "etl_analysis.csv", parse_dates=["Date"])
 
-    total_services = data['Services'].sum()
-    total_visits = data['Visits'].sum()
-    total_rejected = data['Rejected'].sum()
-    total_time = data['Time'].sum()
+    total_services = data["Services"].sum()
+    total_visits = data["Visits"].sum()
+    total_rejected = data["Rejected"].sum()
+    total_time = data["Time"].sum()
     total_approved = total_services - total_rejected
 
     # Display KPIs
@@ -30,23 +33,25 @@ if st.button('Get Analysis'):
     col6.empty()  # placeholder to balance the layout
 
     # Line charts for services, visits, time over time
-    line_data = data[['Date', 'Services', 'Visits', 'Time']].set_index('Date')
+    line_data = data[["Date", "Services", "Visits", "Time"]].set_index("Date")
     st.line_chart(line_data, use_container_width=True)
 
     # Bar charts for approved/rejected
     st.subheader("Predictions")
-    bar_df = pd.DataFrame({
-        'Prediction': ['Approved', 'Rejected'],
-        'Count': [total_approved, total_rejected]
-    })
-    st.bar_chart(bar_df.set_index('Prediction'))
+    bar_df = pd.DataFrame(
+        {
+            "Prediction": ["Approved", "Rejected"],
+            "Count": [total_approved, total_rejected],
+        }
+    )
+    st.bar_chart(bar_df.set_index("Prediction"))
 
     # Descriptive statistics
     st.subheader("Descriptive Statistics")
-    st.write(data[['Services', 'Visits', 'Time', 'Rejected']].describe())
-    data['Date'] = pd.to_datetime(data['Date'])
-    daily_services = data.groupby(data['Date'].dt.date)['Services'].sum()
-    daily_visits = data.groupby(data['Date'].dt.date)['Visits'].sum()
+    st.write(data[["Services", "Visits", "Time", "Rejected"]].describe())
+    data["Date"] = pd.to_datetime(data["Date"])
+    daily_services = data.groupby(data["Date"].dt.date)["Services"].sum()
+    daily_visits = data.groupby(data["Date"].dt.date)["Visits"].sum()
     avg_serv_per_day = round(daily_services.mean())
     avg_visits_per_day = round(daily_visits.mean())
     st.write(f"Average Visists per day: {avg_visits_per_day}")

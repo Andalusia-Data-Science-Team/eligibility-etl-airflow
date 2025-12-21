@@ -1,19 +1,21 @@
-import pandas as pd
-from typing import Dict
 import json
-import urllib.request
-import urllib.parse
-import urllib.error
-from tqdm import tqdm
-from sqlalchemy import create_engine, text
-from dotenv import load_dotenv
-from langchain_fireworks import ChatFireworks
-from langchain_core.messages import HumanMessage, SystemMessage
-import time
-from datetime import datetime
-import warnings
 import logging
+import re
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import warnings
+from datetime import datetime
 from pathlib import Path
+from typing import Dict
+
+import pandas as pd
+from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_fireworks import ChatFireworks
+from sqlalchemy import create_engine, text
+from tqdm import tqdm
 
 warnings.filterwarnings("ignore")
 _ = load_dotenv()
@@ -22,19 +24,6 @@ _ = load_dotenv()
 logger = logging.getLogger("debug_logs")
 logger.setLevel(logging.DEBUG)
 
-try:
-    with open("passcode.json", "r") as file:
-        db_configs = json.load(file)
-    db_configs = db_configs["DB_NAMES"]
-    live_passcode = db_configs["Replica"]
-
-    sql_path = Path("sql") / "claims_ahj.sql"
-    with open(sql_path, "r") as file:
-        query = file.read()
-
-except Exception as e:
-    logger.exception(f"Error loading configuration files: {e}")
-    raise
 
 prompt = """
 You are an expert medical assistant.
@@ -43,8 +32,8 @@ You will be provided with a patient's information in a visit and the ordered med
 Think about the ordered services and their purposes, and whether they align with the diagnosis. Be strict, do not make speculations on the patient's
 information and history beyond the what you're provided with, stick to the explicit information that you have.
 
-Given the patient's case and diagnosis, and using your medical knowledge, decide for each requested service whether it's "Approved"
-(when it's medically necessary, for treatment or necessary pain relief, or to rule out possible risk factors, etc..), or "Rejected" (when not medically justified).
+Given the patient's case and diagnosis, and using your medical knowledge, decide for each requested service whether it's "Approved" (when it's medically
+necessary, for treatment or necessary pain relief, or to rule out possible risk factors, etc..), or "Rejected" (when not medically justified).
 
 Then, only for the services that you reject, you are supposed to recommend a valid alternative service that would be a better fit for this patient's
 case and would be classified as accepted. You can also recommend for the doctor what to include in his diagnosis or notes to justify the rejected services.
@@ -58,6 +47,7 @@ Rejected:
 Even if two services have the same rejection reason, clarify each of them separately in a key-value pair of its own.
 Do not mention or justify any "Approved" services. If all services are approved, return an empty JSON like: Rejected: {}
 Clarify your reasons in a friendly advice/recommendation tone.
+Return ONLY the raw JSON object. Do not wrap it in markdown code blocks. Your response must start with { and end with }. Do not include ```json or ``` markers.
 """
 
 schema = {
@@ -81,122 +71,6 @@ schema = {
     "required": ["Rejected"],
     "additionalProperties": False,
 }
-
-
-def get_conn_engine(passcodes):
-    """
-    Creates and returns a SQLAlchemy engine for connecting to the SQL database.
-
-    Args:
-    - passcodes (dict): A dictionary containing database credentials.
-
-    Returns:
-    - engine (sqlalchemy.engine.Engine): A SQLAlchemy Engine instance for connecting to the database.
-    """
-    try:
-        server, db, uid, pwd, driver = (
-            passcodes["Server"],
-            passcodes["Database"],
-            passcodes["UID"],
-            passcodes["PWD"],
-            passcodes["driver"],
-        )
-        params = urllib.parse.quote_plus(
-            f"DRIVER={driver};"
-            f"SERVER={server};"
-            f"DATABASE={db};"
-            f"UID={uid};"
-            f"PWD={pwd};"
-            f"Connection Timeout=300;"
-        )
-        engine = create_engine("mssql+pyodbc:///?odbc_connect={}".format(params))
-        logger.debug(f"Database connection engine created for {server}/{db}")
-        return engine
-    except KeyError as e:
-        logger.error(f"Missing key in passcodes dictionary: {e}")
-        raise
-    except Exception as e:
-        logger.exception(f"Error creating database connection engine: {e}")
-        raise
-
-
-def read_data():
-    """
-    Executes a SQL query using get_conn_engine. If the first attempt fails,
-    waits for 5 minutes before trying again. If second attempt fails, reads data from live instead.
-
-    Returns:
-        pandas DataFrame with query results
-    """
-    try:
-        df = pd.read_sql_query(query, get_conn_engine(live_passcode))
-        # if df.empty:
-        #     df = pd.read_sql_query(query, get_conn_engine(live_passcode))
-        return df
-    except Exception as e:
-        logger.debug(f"First attempt failed with error: {str(e)}")
-        logger.debug("Waiting 5 minutes before retrying...")
-        time.sleep(300)  # Wait for 5 minutes (300 seconds)
-
-        # Second attempt
-        try:
-            return pd.read_sql_query(query, get_conn_engine(live_passcode))
-        except Exception as e:
-            logger.debug(f"Reading from live data attempt failed with error: {str(e)}")
-            # logger.debug(f"Second attempt failed with error: {str(e)}")
-            # logger.debug("Reading from live data...")
-            # try:
-            #     return pd.read_sql_query(query, get_conn_engine(live_passcode))
-            # except Exception as e:
-            #     logger.debug(f"Reading from live data attempt failed with error: {str(e)}")
-            pass
-
-
-def update_table(
-    passcode: Dict[str, str], table_name: str, df: pd.DataFrame, retries=28, delay=500
-):
-    """
-    Updates a database table with the given DataFrame. Retries on failure.
-
-    Parameters:
-    - table_name: Name of the table to update.
-    - df: DataFrame to update the table.
-    - retries: Number of retry attempts.
-    - delay: Delay in seconds between retries.
-    """
-    try:
-        engine = get_conn_engine(passcode)
-        # Create a copy of the DataFrame to avoid modifying the original
-        df_clean = df.copy()
-
-        attempt = 0
-        while attempt < retries:
-            try:
-                logger.debug(f"Update attempt {attempt+1}/{retries}")
-                logger.debug("Connection established, beginning data transfer")
-                df_clean.to_sql(
-                    name=f"{table_name}",
-                    con=engine,
-                    index=False,
-                    if_exists="append",
-                    chunksize=1000,
-                    schema="dbo",
-                )
-                logger.info(f"Successfully updated '{table_name}' table")
-                return  # Exit the function if successful
-            except Exception as e:
-                attempt += 1
-                logger.error(f"Attempt {attempt} failed: {str(e)}")
-                if attempt < retries:
-                    logger.info(f"Retrying in {delay} seconds...")
-                    time.sleep(delay)
-                else:
-                    failure_msg = "All retries failed. Please check the error and try again later."
-                    logger.error(failure_msg)
-                    raise  # Re-raise the exception after all retries fail
-    except Exception as e:
-        logger.exception(f"Critical error in updating table {table_name}: {e}")
-        raise
 
 
 def dev_response(info, services, model="accounts/fireworks/models/deepseek-v3p1"):
@@ -282,6 +156,15 @@ def validate_keys(multiple):
         raise
 
 
+def clean_llm_json(response: str) -> dict:
+    """Parse JSON from LLM, handling markdown code fences."""
+    # Remove markdown code fences if present
+    cleaned = re.sub(
+        r"^```(?:json)?\s*|\s*```$", "", response.strip(), flags=re.MULTILINE
+    )
+    return cleaned
+
+
 def duplicate_services(duplications):
     predictions = {}
     for s in duplications:
@@ -361,11 +244,15 @@ def request_loop(df):
                 responses.update(json.loads(answer).get("Rejected", {}))
             except (
                 json.JSONDecodeError
-            ) as e:  # Errors due to JSON parsing, JSON schema error or unterminated string for example
-                failed_visits.append(v)
-                logger.error(
-                    f"Failed to parse JSON response for visit {v}: {e}, Raw response: {answer}"
-                )
+            ):  # Errors due to JSON parsing, JSON schema error or unterminated string for example
+                try:
+                    cleaned = clean_llm_json(answer)
+                    responses.update(json.loads(cleaned).get("Rejected", {}))
+                except json.JSONDecodeError as e:
+                    failed_visits.append(v)
+                    logger.error(
+                        f"Failed to parse JSON response for visit {v}: {e}, Raw response: {answer}"
+                    )
     return responses, total_time, failed_visits
 
 

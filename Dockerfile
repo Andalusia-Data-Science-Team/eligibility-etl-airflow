@@ -28,7 +28,6 @@ COPY --chown=airflow:root src/ /tmp/build/src/
 COPY --chown=airflow:root sql/ /opt/airflow/sql/
 COPY --chown=airflow:root passcode.json /opt/airflow/
 COPY --chown=airflow:root .env /opt/airflow/
-COPY --chown=airflow:root etl_analysis.csv /opt/airflow/
 
 # Create DAGs directory (if not mounting via docker-compose)
 COPY --chown=airflow:root dags/ /opt/airflow/dags/
