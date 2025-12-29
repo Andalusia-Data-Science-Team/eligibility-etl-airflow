@@ -39,37 +39,35 @@ default_args = {
 
 
 @dag(
-    dag_id="resubmission_job",
+    dag_id="clinics_resubmission_job",
     default_args=default_args,
     start_date=START_DATE,
-    schedule_interval="0 7 * * *",
+    schedule_interval="30 7 * * *",
     catchup=False,
-    tags=["resubmission", "AHJ"],
+    tags=["resubmission", "SNB", "AKW", "ALW", "MKR", "LCH"],
     max_active_runs=2,  # Prevent overlapping runs
-    description="ETL pipeline for AHJ Claims Resubmission Copilot",
+    description="ETL pipeline for Outpatient Clinics Claims Resubmission Copilot",
     # DAG-level email configuration
     params={
         "email_on_dag_failure": True,
         "notification_emails": email_list,
     },
 )
-def resubmission_etl_pipeline():
+def clinics_resubmission_etl_pipeline():
     @task(
         email_on_failure=True,
         email_on_retry=False,
         email=email_list,
     )
-    def extract():
-        df = read_data(query, db_configs["Replica"], logger)
+    def extract(clinic_name, clinic_passcode):
+        df = read_data(query, clinic_passcode, logger)
         if df.empty:
-            raise AirflowSkipException(
-                "No data was found in live, quitting resubmission job"
-            )
+            raise AirflowSkipException("No data was found, quitting resubmission job")
 
         df = df.drop_duplicates(keep="last")
         df = df.loc[df["VisitClassificationEnName"] != "Ambulatory"]
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        temp = f"/tmp/extracted_resubmission_{timestamp}.parquet"
+        timestamp = datetime.now().strftime("%Y%m%d")
+        temp = f"/tmp/extracted_resubmission_{clinic_name}_{timestamp}.parquet"
         df.to_parquet(temp)
         return temp
 
@@ -78,12 +76,12 @@ def resubmission_etl_pipeline():
         email_on_retry=False,
         email=email_list,
     )
-    def transform(extracted_data):
+    def transform(clinic_name, extracted_data):
         extracted_data = pd.read_parquet(extracted_data)
         result_df = transform_loop(extracted_data, logger)
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        result_file = f"/tmp/result_resubmission_{timestamp}.parquet"
+        result_df["BU"] = clinic_name
+        timestamp = datetime.now().strftime("%Y%m%d")
+        result_file = f"/tmp/result_resubmission_{clinic_name}_{timestamp}.parquet"
         result_df.to_parquet(result_file)
 
         return result_file
@@ -95,7 +93,9 @@ def resubmission_etl_pipeline():
     )
     def load(result_file):
         result_df = pd.read_parquet(result_file)
-        update_table(db_configs["BI"], "Resubmission_Copilot", result_df, logger)
+        update_table(
+            db_configs["BI"], "Clinics_Resubmission_Copilot", result_df, logger
+        )
 
     @task
     def cleanup_files(extracted_data, transformed_data):
@@ -114,11 +114,14 @@ def resubmission_etl_pipeline():
             # Don't raise here as cleanup failure shouldn't fail the DAG
 
     # DAG flow
-    extracted = extract()
-    transformed = transform(extracted)
-    loaded = load(transformed)
+    BU = ["SNB", "AKW", "ALW", "MKR", "LCH"]
+    for unit in BU:  # Override Airflow generic task IDs to distinguish between BUs
+        extracted = extract.override(task_id=f"{unit}_extract")(unit, db_configs[unit])
+        transformed = transform.override(task_id=f"{unit}_transform")(unit, extracted)
+        loaded = load.override(task_id=f"{unit}_load")(transformed)
+        loaded >> cleanup_files.override(task_id=f"{unit}_cleanup")(
+            extracted, transformed
+        )
 
-    transformed >> loaded >> cleanup_files(extracted, transformed)
 
-
-dag = resubmission_etl_pipeline()
+dag = clinics_resubmission_etl_pipeline()

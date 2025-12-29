@@ -1,15 +1,12 @@
+import ast
+import time
+import warnings
+
 import pandas as pd
 from dotenv import load_dotenv
-from langchain_fireworks import ChatFireworks
 from langchain_core.messages import HumanMessage, SystemMessage
-import urllib.request
-import urllib.parse
-import urllib.error
-from sqlalchemy import create_engine
+from langchain_fireworks import ChatFireworks
 from tqdm import tqdm
-import time
-import ast
-import warnings
 
 warnings.filterwarnings("ignore")
 _ = load_dotenv()
@@ -82,8 +79,8 @@ def generate_justification(
     json_model = ChatFireworks(
         model=model,
         temperature=0.2,
-        max_tokens=5000,
-        model_kwargs={"top_k": 1},
+        max_tokens=10000,
+        model_kwargs={"top_k": 1, "stream": True},
         request_timeout=(120, 120),
     ).bind(response_format={"type": "json_object", "schema": schema})
 
@@ -95,8 +92,15 @@ def generate_justification(
         HumanMessage(content=str(visit_data)),
     ]
 
-    response = json_model.invoke(chat_history).content
-    return response
+    stream = json_model.stream(chat_history)
+    full_response = ""
+
+    for chunk in stream:
+        # Access the content from each chunk
+        if hasattr(chunk, "content") and chunk.content:
+            full_response += chunk.content
+
+    return full_response
 
 
 def data_prep(df):
@@ -155,8 +159,8 @@ def transform_loop(df, logger):
             data_dict.update(ast.literal_eval(response).get("Justifications", {}))
         except Exception as e:
             logger.debug(f"Error processing visit {v}: {e}")
+            logger.debug("Retrying...")
             time.sleep(60)
-            logger.debug(f"Retrying...")
             try:
                 response = generate_justification(visit_data, len_rej)
                 data_dict.update(ast.literal_eval(response).get("Justifications", {}))

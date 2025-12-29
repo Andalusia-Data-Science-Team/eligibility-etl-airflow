@@ -11,32 +11,37 @@ services:
 
   airflow-webserver:
     build: .
-    image: eligibility-etl-airflow-airflow-webserver:FinalDiagnosisDAG
+    image: eligibility-etl-airflow-airflow-webserver:Insurance
     restart: always
     depends_on:
       - mysql
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__CORE__SQL_ALCHEMY_CONN: mysql+pymysql://root:root123@mysql/airflow_db
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: mysql+pymysql://root:root123@mysql/airflow_db
       AIRFLOW__WEBSERVER__SECRET_KEY: 7G/RFrMkC8rszm3wyqahkA==
+      AIRFLOW__LOGGING__REMOTE_LOGGING: "False"
+      AIRFLOW__LOGGING__WORKER_LOG_SERVER_PORT: "0"
     volumes:
       - ./dags:/opt/airflow/dags
       - ./plugins:/opt/airflow/plugins
       - ./src:/opt/airflow/src
+      - airflow-logs:/opt/airflow/logs
     ports:
       - "8080:8080"
     command: webserver
 
   airflow-scheduler:
     build: .
-    image: eligibility-etl-airflow-airflow-scheduler:FinalDiagnosisDAG
+    image: eligibility-etl-airflow-airflow-scheduler:Insurance
     restart: always
     depends_on:
       - airflow-webserver
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__CORE__SQL_ALCHEMY_CONN: mysql+pymysql://root:root123@mysql/airflow_db
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: mysql+pymysql://root:root123@mysql/airflow_db
       AIRFLOW__WEBSERVER__SECRET_KEY: 7G/RFrMkC8rszm3wyqahkA==
+      AIRFLOW__LOGGING__REMOTE_LOGGING: "False"
+      AIRFLOW__LOGGING__WORKER_LOG_SERVER_PORT: "0"
     volumes:
       - ./dags:/opt/airflow/dags
       - ./plugins:/opt/airflow/plugins
@@ -44,7 +49,9 @@ services:
       - ./sql:/opt/airflow/sql
       - ./passcode.json:/opt/airflow/passcode.json
       - ./.env:/opt/airflow/.env
+      - airflow-logs:/opt/airflow/logs
     command: scheduler
 
 volumes:
   mysql-db-volume:
+  airflow-logs:

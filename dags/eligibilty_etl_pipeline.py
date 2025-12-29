@@ -1,225 +1,58 @@
-from airflow.utils.email import send_email
-from airflow.utils import timezone
-import pendulum
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-import smtplib
-from airflow.decorators import dag, task
-from airflow.utils.dates import days_ago
+import logging
+import os
+import json
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+
 import pandas as pd
-from tqdm import tqdm
-import json
-import os
+from airflow.decorators import dag, task
 from sqlalchemy import text
-import sys
+from tqdm import tqdm
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.utils import (
-    Iqama_table,
-    get_conn_engine,
-    map_row,
-    change_date,
-    send_json_to_api,
-    create_json_payload,
-    extract_code,
-    extract_outcome,
-    extract_note,
-    find_keys,
-    extract_allowedMoney,
-    update_table,
+from src.eligibility import (Iqama_table, change_date, create_json_payload,
+                             extract_code, extract_note, extract_outcome,
+                             map_row, parse_row,
+                             send_json_to_api, update_table)
+from src.etl_utils import get_conn_engine, email_list, START_DATE, failure_callback
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("scheduler.log"),  # Log to a file
+        logging.StreamHandler(),  # Log to the console
+    ],
 )
 
-CAIRO_TZ = pendulum.timezone("Africa/Cairo")
+logger = logging.getLogger(__name__)
 
-
-def failure_callback(context):
-    """Enhanced failure callback with SMTP email sending"""
-    try:
-        dag_run = context.get("dag_run")
-        task_instance = context.get("task_instance")
-        exception = context.get("exception")
-        execution_date = context.get("execution_date")
-
-        # Format execution date properly
-        exec_date_str = (
-            execution_date.strftime("%Y-%m-%d %H:%M:%S")
-            if execution_date
-            else "Unknown"
-        )
-
-        subject = (
-            f"[Airflow FAILURE] DAG: {dag_run.dag_id} - Task: {task_instance.task_id}"
-        )
-        log_url = f"http://10.24.105.221:8080/log?dag_id={dag_run.dag_id}&task_id={task_instance.task_id}&execution_date={execution_date.isoformat()}"
-
-        # Create a more detailed HTML email body
-        html_body = f"""
-        <html>
-        <body>
-            <h2 style="color: #d32f2f;">Airflow DAG Failure Alert</h2>
-            <table border="1" cellpadding="10" cellspacing="0" style="border-collapse: collapse;">
-                <tr>
-                    <td><strong>DAG ID:</strong></td>
-                    <td>{dag_run.dag_id}</td>
-                </tr>
-                <tr>
-                    <td><strong>Task ID:</strong></td>
-                    <td>{task_instance.task_id}</td>
-                </tr>
-                <tr>
-                    <td><strong>Execution Date:</strong></td>
-                    <td>{exec_date_str}</td>
-                </tr>
-                <tr>
-                    <td><strong>Run ID:</strong></td>
-                    <td>{dag_run.run_id}</td>
-                </tr>
-                <tr>
-                    <td><strong>State:</strong></td>
-                    <td style="color: #d32f2f;">{task_instance.state}</td>
-                </tr>
-                <tr>
-                    <td><strong>Exception:</strong></td>
-                    <td><pre style="background-color: #f5f5f5; padding: 10px;">{str(exception) if exception else 'No exception details available'}</pre></td>
-                </tr>
-            </table>
-            <br>
-            <p><strong>Please investigate this failure and take appropriate action.</strong></p>
-        </body>
-        </html>
-        """
-
-        # List of recipients
-        recipients = [
-            "Mohamed.Reda@Andalusiagroup.net",
-            "Andrew.Alfy@Andalusiagroup.net",
-            "Nadine.ElSokily@Andalusiagroup.net",
-        ]
-
-        # Send email using SMTP
-        try:
-            print("Sending failure notification via SMTP...")
-            server = smtplib.SMTP("aws-ex-07.andalusia.loc", 25)
-            server.set_debuglevel(1)
-            server.starttls()
-
-            # Create message
-            msg = MIMEMultipart()
-            msg["From"] = "ai-service@andalusiagroup.net"
-            msg["To"] = ", ".join(recipients)
-            msg["Subject"] = subject
-            msg.attach(MIMEText(html_body, "html"))
-
-            # Send without authentication
-            server.send_message(msg)
-            server.quit()
-            print("✅ Failure notification sent successfully!")
-
-        except Exception as smtp_error:
-            print(f"❌ Failed to send failure notification via SMTP: {smtp_error}")
-            # Fall back to Airflow's send_email if SMTP fails
-            try:
-                send_email(
-                    to=[
-                        "Mohamed.Reda@Andalusiagroup.net",
-                        "Andrew.Alfy@Andalusiagroup.net",
-                        "Nadine.ElSokily@Andalusiagroup.net",
-                    ],
-                    subject=subject,
-                    html_content=html_body,
-                )
-                print("Used fallback email method successfully")
-            except Exception as fallback_error:
-                print(f"Failed to send email with fallback method: {fallback_error}")
-
-    except Exception as e:
-        print(f"Failed to process failure notification: {str(e)}")
-
-
-def success_callback(context):
-    """Optional success callback"""
-    try:
-        dag_run = context.get("dag_run")
-        execution_date = context.get("execution_date")
-
-        exec_date_str = (
-            execution_date.strftime("%Y-%m-%d %H:%M:%S")
-            if execution_date
-            else "Unknown"
-        )
-
-        subject = f"[Airflow SUCCESS] DAG: {dag_run.dag_id} completed successfully"
-
-        html_body = f"""
-        <html>
-        <body>
-            <h2 style="color: #388e3c;">Airflow DAG Success</h2>
-            <table border="1" cellpadding="10" cellspacing="0" style="border-collapse: collapse;">
-                <tr>
-                    <td><strong>DAG ID:</strong></td>
-                    <td>{dag_run.dag_id}</td>
-                </tr>
-                <tr>
-                    <td><strong>Execution Date:</strong></td>
-                    <td>{exec_date_str}</td>
-                </tr>
-                <tr>
-                    <td><strong>Run ID:</strong></td>
-                    <td>{dag_run.run_id}</td>
-                </tr>
-                <tr>
-                    <td><strong>Status:</strong></td>
-                    <td style="color: #388e3c;">SUCCESS</td>
-                </tr>
-            </table>
-            <br>
-            <p><strong>All tasks completed successfully!</strong></p>
-        </body>
-        </html>
-        """
-
-        send_email(
-            to=[
-                "Mohamed.Reda@Andalusiagroup.net",
-                "Andrew.Alfy@Andalusiagroup.net",
-                "Nadine.ElSokily@Andalusiagroup.net",
-            ],
-            subject=subject,
-            html_content=html_body,
-        )
-        print("Success notification email sent")
-
-    except Exception as e:
-        print(f"Failed to send success notification email: {str(e)}")
-
+with open("passcode.json", "r") as file:
+    data_dict = json.load(file)
+db_names = data_dict["DB_NAMES"]
 
 # Enhanced default args with anonymous SMTP configuration
 default_args = {
     "owner": "airflow",
     "depends_on_past": False,
-    "retries": 1,
+    "retries": 2,
     "retry_delay": timedelta(minutes=3),
     "email_on_failure": True,
     "email_on_retry": False,
     "email_on_success": False,  # Set to True if you want success emails for individual tasks
-    "email": [
-        "Mohamed.Reda@Andalusiagroup.net",
-        "Andrew.Alfy@Andalusiagroup.net",
-        "Nadine.ElSokily@Andalusiagroup.net",
-    ],  # Default email list
+    "email": email_list,  # Default email list
     "on_failure_callback": failure_callback,
-    # 'on_success_callback': success_callback,  # Uncomment if you want success emails
 }
 
 
 @dag(
     dag_id="eligibility_job_",
     default_args=default_args,
-    start_date=pendulum.now(CAIRO_TZ).subtract(days=1),
-    schedule_interval="0 4,8,12,16,20 * * *",  # 11:59 PM, 4 AM, 8 AM, 12 PM, 4 PM, 8 PM
+    start_date=START_DATE,
+    schedule_interval="0 23,4,8,12,16,20 * * *",  # 12:00 PM, 4 AM, 8 AM, 12 PM, 4 PM, 8 PM
     catchup=False,
     tags=["eligibility", "dotcare", "parallel"],
     max_active_runs=3,  # Prevent overlapping runs
@@ -227,11 +60,7 @@ default_args = {
     # DAG-level email configuration
     params={
         "email_on_dag_failure": True,
-        "notification_emails": [
-            "Mohamed.Reda@Andalusiagroup.net",
-            "Andrew.Alfy@Andalusiagroup.net",
-            "Nadine.ElSokily@Andalusiagroup.net",
-        ],
+        "notification_emails": email_list,
     },
 )
 def eligibility_etl_pipeline():
@@ -239,16 +68,11 @@ def eligibility_etl_pipeline():
     @task(
         email_on_failure=True,
         email_on_retry=False,
-        email=[
-            "Mohamed.Reda@Andalusiagroup.net",
-            "Andrew.Alfy@Andalusiagroup.net",
-            "Nadine.ElSokily@Andalusiagroup.net",
-        ],
+        email=email_list,
     )
     def extract_data(**context):
         """Extract data with overlap handling to prevent data gaps"""
         try:
-            source = "Replica"
             query_path = (
                 Path(__file__).resolve().parent.parent
                 / "sql"
@@ -256,7 +80,7 @@ def eligibility_etl_pipeline():
             )
             query = query_path.read_text()
             current_time = datetime.now()
-            engine = get_conn_engine(source=source)
+            engine = get_conn_engine(db_names["Replica"], logger)
 
             try:
                 with engine.connect() as conn:
@@ -285,7 +109,7 @@ def eligibility_etl_pipeline():
     @task(
         email_on_failure=True,
         email_on_retry=False,
-        email=["Nadine.ElSokily@Andalusiagroup.net"],
+        email=email_list,
     )
     def transform_iqama(extraction_info):
         """Transform data for Iqama table"""
@@ -304,7 +128,7 @@ def eligibility_etl_pipeline():
             )
             df_iqama = df_iqama.drop_duplicates(keep="last").reset_index(drop=True)
 
-            result_df = Iqama_table(df_iqama)
+            result_df = Iqama_table(df_iqama, logger)
             result_df["Insertion_Date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
 
             # Save transformed data to file
@@ -321,7 +145,7 @@ def eligibility_etl_pipeline():
     @task(
         email_on_failure=True,
         email_on_retry=False,
-        email=["Nadine.ElSokily@Andalusiagroup.net"],
+        email=email_list,
     )
     def transform_eligibility(extraction_info):
         """Transform data for Eligibility table"""
@@ -344,7 +168,7 @@ def eligibility_etl_pipeline():
             tqdm.pandas(desc="API Requests")
             df["eligibility_response"] = df.progress_apply(
                 lambda row: send_json_to_api(
-                    create_json_payload(row, source="AHJ_DOT-CARE")
+                    create_json_payload(row, source="Replica")
                 ),
                 axis=1,
             )
@@ -353,9 +177,8 @@ def eligibility_etl_pipeline():
             df["class"] = df["eligibility_response"].apply(extract_code)
             df["outcome"] = df["eligibility_response"].apply(extract_outcome)
             df["note"] = df["eligibility_response"].apply(extract_note)
-            df["parsed_results"] = df["eligibility_response"].apply(find_keys)
-            df[["approval_limit", "copay_maximum"]] = df["parsed_results"].apply(
-                lambda r: pd.Series(extract_allowedMoney(r))
+            df[["approval_limit", "copay_maximum"]] = df["eligibility_response"].apply(
+                lambda x: pd.Series(parse_row(x))
             )
 
             # Apply business rules
@@ -394,7 +217,7 @@ def eligibility_etl_pipeline():
     @task(
         email_on_failure=True,
         email_on_retry=False,
-        email=["Nadine.ElSokily@Andalusiagroup.net"],
+        email=email_list,
     )
     def load_data(iqama_info, eligibility_info):
         """Load transformed data to destinations"""
@@ -412,7 +235,7 @@ def eligibility_etl_pipeline():
             if iqama_info:
                 iqama_df = pd.read_parquet(iqama_info["file_path"])
                 iqama_df.to_csv(f"data/DOT-CARE/iqama_{timestamp}.csv", index=False)
-                update_table(table_name="Iqama_dotcare", df=iqama_df)
+                update_table(passcodes=db_names["BI"], table_name="Iqama_dotcare", df=iqama_df, logger=logger)
                 print(f"Loaded {len(iqama_df)} Iqama records")
 
             # Process Eligibility data
@@ -421,7 +244,7 @@ def eligibility_etl_pipeline():
                 eligibility_df.to_csv(
                     f"data/DOT-CARE/eligibilty_{timestamp}.csv", index=False
                 )
-                update_table(table_name="Eligibility_dotcare", df=eligibility_df)
+                update_table(passcodes=db_names["BI"], table_name="Eligibility_dotcare", df=eligibility_df, logger=logger)
                 print(f"Loaded {len(eligibility_df)} Eligibility records")
 
         except Exception as e:

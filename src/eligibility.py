@@ -1,54 +1,28 @@
-from sqlalchemy import create_engine, text
-from urllib.parse import quote_plus
-import pandas as pd
-from datetime import datetime
+import ast
+import json
+import platform
+import random
 import time
 import warnings
-import logging
-import json
-import requests
-import ast
-from tqdm import tqdm
-import platform
+from datetime import datetime
+
 import cx_Oracle
-from pathlib import Path
-import random
+import pandas as pd
+import requests
+from tqdm import tqdm
+import pyodbc
 
 # Suppress the specific UserWarning
 warnings.filterwarnings(
     "ignore", category=UserWarning, message="Could not infer format"
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("scheduler.log"),  # Log to a file
-        logging.StreamHandler(),  # Log to the console
-    ],
-)
 
-logger = logging.getLogger(__name__)
-
-
-def update_table(table_name, df, retries=5, delay=30):
+def update_table(passcodes, table_name, df, logger, retries=5, delay=30):
     """
     Updates a database table with manual SQL INSERT statements.
     Completely bypasses df.to_sql() to avoid cursor attribute errors.
     """
-    import pyodbc
-    import pandas as pd
-    import time
-    import logging
-    from datetime import datetime
-
-    logger = logging.getLogger(__name__)
-
-    data_dict = _load_json("passcode.json")
-    db_names = data_dict.get("DB_NAMES")
-    passcodes = db_names["BI"]
-
     server = passcodes["Server"]
     if "," not in server and "\\" not in server:
         server = f"{server},1433"
@@ -107,7 +81,7 @@ def update_table(table_name, df, retries=5, delay=30):
             inserted_count = 0
 
             for i in range(0, total_rows, chunk_size):
-                chunk = df_clean.iloc[i : i + chunk_size]
+                chunk = df_clean.iloc[i: i + chunk_size]
 
                 # Convert DataFrame chunk to list of tuples
                 data_tuples = []
@@ -145,7 +119,7 @@ def update_table(table_name, df, retries=5, delay=30):
             if conn:
                 try:
                     conn.rollback()
-                except:
+                except Exception:
                     pass
 
             if attempt < retries:
@@ -159,7 +133,7 @@ def update_table(table_name, df, retries=5, delay=30):
             if conn:
                 try:
                     conn.close()
-                except:
+                except Exception:
                     pass
 
 
@@ -212,10 +186,10 @@ def extract_insurance_data(row):
         elif isinstance(row, str):
             try:
                 data = json.loads(row)
-            except:
+            except Exception:
                 try:
                     data = ast.literal_eval(row)
-                except:
+                except Exception:
                     return None
 
         # Check if ApiStatus is Success and extract Insurance data
@@ -230,7 +204,14 @@ def extract_insurance_data(row):
         return None
 
 
-def Iqama_table(df):
+def Iqama_table(df, logger):
+    """
+    1- Gets unique int iqama numbers from extracted df
+    2- Sends them to Beneficiary API with a random delay using Beneficiary_api()
+    3- Parses the resulting JSON and extracts success/failure status, and insurance data of each request,
+      using extract_api_status() and extract_insurance_data()
+
+    """
     insurance_df = pd.DataFrame()
     # Get unique iqama numbers
     unique_iqama = df["iqama_no"].dropna().unique()
@@ -297,7 +278,7 @@ def extract_api_status(value):
             # If that fails, try evaluating it as a Python literal
             try:
                 data = ast.literal_eval(value)
-            except:
+            except Exception:
                 # Print a sample of the problematic value for debugging
                 print(f"Cannot parse: {value[:50]}...")
                 return None
@@ -362,7 +343,7 @@ def create_json_payload(row, purpose="discovery", source=""):
     identifier_system = (
         "nationalid" if safe_str(row.get("nationality")) == "NI" else "iqama"
     )
-    if source == "AHJ_DOT-CARE":
+    if source == "Replica":
         json_data = {
             "purpose": purpose,
             "patient_id": safe_int_str(row.get("patient_id")),
@@ -579,66 +560,54 @@ def find_keys(data, target="allowedMoney"):
 
 
 def extract_allowedMoney(results):
+    # Works with Tawuniya jsons
     if not results or len(results) < 2:
         return None, None
     return results[0]["value"], results[1]["value"]
 
 
-def _load_json(file_path):
-    """
-    Load a JSON file and return its content.
-
-    Args:
-        file_path (Path): Path to the JSON file.
-
-    Returns:
-        Dict: Content of the JSON file.
-    """
-    file_path = Path(file_path)
-    if not file_path.exists():
-        print(f"Error: JSON file not found at {file_path}")
-        raise FileNotFoundError(f"JSON file not found at {file_path}")
-    with open(file_path, "r") as file:
-        print(f"Loading JSON file from {file_path}")
-        return json.load(file)
+def extract_maxcopay(results):
+    # Works with malath jsons
+    try:
+        return None, results[0][1]["valueMoney"]["value"]
+    except Exception:
+        return None, None
 
 
-def get_conn_engine(source):
-    """
-    Creates and returns a SQLAlchemy engine for connecting to the SQL database.
-    """
-    data_dict = _load_json("passcode.json")
-    db_names = data_dict.get("DB_NAMES")
-    if not db_names or source not in db_names:
-        print("Error: Source database configuration not found in JSON file.")
-        raise ValueError("Source database configuration not found in JSON file.")
-    passcodes = db_names[source]
+def bupa_approval_limit(json_obj):
+    # Works with bupa jsons
+    try:
+        items = json_obj["response"]["entry"][1]["resource"]["insurance"][0]["item"]
+    except Exception:
+        return None, None
 
-    if source == "ORACLE_LIVE":
-        oracle_client_path = r"C:\\Users\\ai-service\\Downloads\\instantclient-basic-windows.x64-23.6.0.24.10\\instantclient_23_6"
-        init_oracle_client(oracle_client_path)
-        password = urllib.parse.quote_plus(passcodes["psw"])  # URL-encode the password
-        conn_str = f"oracle+cx_oracle://{passcodes['user']}:{password}@{passcodes['host']}:{passcodes['port']}/{passcodes['service']}"
-        return create_engine(conn_str)
+    for it in items:
+        if it.get("name") == "Approval limit":
+            # the benefit list always contains allowedMoney as first element
+            ben = it.get("benefit", [])
+            for b in ben:
+                if "allowedMoney" in b:
+                    return b["allowedMoney"]["value"], None
 
-    elif source == "Replica":
-        server, db, uid, pwd, driver = (
-            passcodes["Server"],
-            passcodes["Database"],
-            passcodes["UID"],
-            passcodes["PWD"],
-            passcodes["driver"],
-        )
-        params = quote_plus(
-            f"DRIVER={driver};"
-            f"SERVER={server};"
-            f"DATABASE={db};"
-            f"UID={uid};"
-            f"PWD={pwd};"
-        )
-        engine = create_engine("mssql+pyodbc:///?odbc_connect={}".format(params))
+    return None, None
 
-        return engine
+
+def parse_row(x):
+    s = str(x)
+
+    if "tawuniya.com.sa" in s:
+        keys = find_keys(x)
+        return extract_allowedMoney(keys)
+
+    elif "www.malath.com.sa" in s:
+        keys = find_keys(x, "costToBeneficiary")
+        return extract_maxcopay(keys)
+
+    elif "bupa.com.sa" in s:
+        return bupa_approval_limit(x)
+
+    else:
+        return None, None
 
 
 def init_oracle_client(lib_dir=None):

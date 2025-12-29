@@ -105,7 +105,7 @@ LEFT JOIN (
     ON REQ.VISITID = SAS.VISITID
 -- VISIT START DATE
 LEFT JOIN VisitMgt.Visit V
-      ON V.ID=REQ.VisitID           
+      ON V.ID=REQ.VisitID
 
 -- Filter to only include the most recent request for each VisitID/StatementID
 WHERE REQ.RN = 1

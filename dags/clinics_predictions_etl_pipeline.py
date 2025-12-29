@@ -11,7 +11,7 @@ from airflow.exceptions import AirflowSkipException
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src.etl_utils import email_list, START_DATE, failure_callback, read_data, update_table
-from src.resubmission import transform_loop
+from src.predictions import make_preds
 
 # Configure debug logger
 logger = logging.getLogger("debug_logs")
@@ -21,81 +21,83 @@ with open("passcode.json", "r") as file:
     db_configs = json.load(file)
 db_configs = db_configs["DB_NAMES"]
 
-with open(Path("sql") / "resubmission.sql", "r") as file:
+with open(Path("sql") / "claims_prediction.sql", "r") as file:
     query = file.read()
 
 # Enhanced default args with anonymous SMTP configuration
 default_args = {
     "owner": "airflow",
     "depends_on_past": False,
-    "retries": 1,
+    "retries": 2,
     "retry_delay": timedelta(minutes=3),
     "email_on_failure": True,
     "email_on_retry": False,
     "email_on_success": False,  # Set to True if you want success emails for individual tasks
-    "email": email_list,  # Default email list
+    "email": email_list,
     "on_failure_callback": failure_callback,
 }
 
 
 @dag(
-    dag_id="resubmission_job",
+    dag_id="clinics_predictions_job",
     default_args=default_args,
     start_date=START_DATE,
-    schedule_interval="0 7 * * *",
+    schedule_interval="0 23,4,8,12,16,20 * * *",  # Every 4 hours
     catchup=False,
-    tags=["resubmission", "AHJ"],
-    max_active_runs=2,  # Prevent overlapping runs
-    description="ETL pipeline for AHJ Claims Resubmission Copilot",
+    tags=["predictions", "SNB", "AKW", "ALW", "MKR", "LCH"],
+    max_active_runs=10,  # Prevent overlapping runs
+    description="ETL pipeline for Outpatient Clinics Claims Medical Predictions",
     # DAG-level email configuration
     params={
         "email_on_dag_failure": True,
         "notification_emails": email_list,
     },
 )
-def resubmission_etl_pipeline():
+def predictions_etl_pipeline():
     @task(
         email_on_failure=True,
         email_on_retry=False,
         email=email_list,
     )
-    def extract():
-        df = read_data(query, db_configs["Replica"], logger)
+    def extract(clinic_name, clinic_passcode):
+        df = read_data(query, clinic_passcode, logger)
         if df.empty:
             raise AirflowSkipException(
-                "No data was found in live, quitting resubmission job"
+                "Query returned 0 rows, quitting predictions job"
             )
-
-        df = df.drop_duplicates(keep="last")
-        df = df.loc[df["VisitClassificationEnName"] != "Ambulatory"]
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        temp = f"/tmp/extracted_resubmission_{timestamp}.parquet"
-        df.to_parquet(temp)
-        return temp
+        temp_file = f"/tmp/extracted_claims_{clinic_name}_{timestamp}.parquet"
+        df.to_parquet(temp_file)
+        return temp_file
 
     @task(
         email_on_failure=True,
         email_on_retry=False,
         email=email_list,
     )
-    def transform(extracted_data):
+    def transform(clinic_name, extracted_data):
         extracted_data = pd.read_parquet(extracted_data)
-        result_df = transform_loop(extracted_data, logger)
-
+        history_df = make_preds(extracted_data)
+        history_df["BU"] = clinic_name
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        result_file = f"/tmp/result_resubmission_{timestamp}.parquet"
-        result_df.to_parquet(result_file)
-
-        return result_file
+        history_file = f"/tmp/history_{clinic_name}_{timestamp}.parquet"
+        history_df.to_parquet(history_file)
+        return history_file
 
     @task(
         email_on_failure=True,
         email_on_retry=False,
         email=email_list,
     )
-    def load(result_file):
-        result_df = pd.read_parquet(result_file)
-        update_table(db_configs["BI"], "Resubmission_Copilot", result_df, logger)
+    def load(history):
+        history = pd.read_parquet(history)
+        pred_df = history[
+            ["VisitServiceID", "Medical_Prediction", "Reason/Recommendation", "BU"]
+        ]
+        update_table(db_configs["BI"], "Clinics_Predictions_DotCare", pred_df, logger)
+        update_table(
+            db_configs["AI"], "Clinics_Claims_Predictions_History", history, logger
+        )
 
     @task
     def cleanup_files(extracted_data, transformed_data):
@@ -103,22 +105,25 @@ def resubmission_etl_pipeline():
         try:
             if extracted_data and os.path.exists(extracted_data):
                 os.remove(extracted_data)
-                logger.info(f"Cleaned up extraction file: {extracted_data}")
+                print(f"Cleaned up extraction file: {extracted_data}")
 
             if transformed_data and os.path.exists(transformed_data):
                 os.remove(transformed_data)
-                logger.info(f"Cleaned up transformed file: {transformed_data}")
+                print(f"Cleaned up extraction file: {transformed_data}")
 
         except Exception as e:
-            logger.debug(f"Error cleaning up file: {str(e)}")
+            print(f"Error cleaning up extraction file: {str(e)}")
             # Don't raise here as cleanup failure shouldn't fail the DAG
 
     # DAG flow
-    extracted = extract()
-    transformed = transform(extracted)
-    loaded = load(transformed)
+    BU = ["SNB", "AKW", "ALW", "MKR", "LCH"]
+    for unit in BU:  # Override Airflow generic task IDs to distinguish between BUs
+        extracted = extract.override(task_id=f"{unit}_extract")(unit, db_configs[unit])
+        transformed = transform.override(task_id=f"{unit}_transform")(unit, extracted)
+        loaded = load.override(task_id=f"{unit}_load")(transformed)
+        loaded >> cleanup_files.override(task_id=f"{unit}_cleanup")(
+            extracted, transformed
+        )
 
-    transformed >> loaded >> cleanup_files(extracted, transformed)
 
-
-dag = resubmission_etl_pipeline()
+dag = predictions_etl_pipeline()
