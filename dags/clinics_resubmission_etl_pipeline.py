@@ -1,23 +1,16 @@
 import json
 import logging
 import os
-import smtplib
 import sys
 from datetime import datetime, timedelta
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from pathlib import Path
 
 import pandas as pd
-import pendulum
 from airflow.decorators import dag, task
 from airflow.exceptions import AirflowSkipException
-from airflow.utils import timezone
-from airflow.utils.dates import days_ago
-from airflow.utils.email import send_email
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from src.etl_utils import email_list, failure_callback, read_data, update_table
+from src.etl_utils import email_list, START_DATE, failure_callback, read_data, update_table
 from src.resubmission import transform_loop
 
 # Configure debug logger
@@ -30,8 +23,6 @@ db_configs = db_configs["DB_NAMES"]
 
 with open(Path("sql") / "resubmission.sql", "r") as file:
     query = file.read()
-
-CAIRO_TZ = pendulum.timezone("Africa/Cairo")
 
 # Enhanced default args with anonymous SMTP configuration
 default_args = {
@@ -50,7 +41,7 @@ default_args = {
 @dag(
     dag_id="clinics_resubmission_job",
     default_args=default_args,
-    start_date=pendulum.now(CAIRO_TZ).subtract(days=1),
+    start_date=START_DATE,
     schedule_interval="30 7 * * *",
     catchup=False,
     tags=["resubmission", "SNB", "AKW", "ALW", "MKR", "LCH"],

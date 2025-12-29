@@ -1,18 +1,14 @@
 import ast
 import json
-import logging
 import platform
 import random
 import time
 import warnings
 from datetime import datetime
-from pathlib import Path
-from urllib.parse import quote_plus
 
 import cx_Oracle
 import pandas as pd
 import requests
-from sqlalchemy import create_engine, text
 from tqdm import tqdm
 import pyodbc
 
@@ -21,29 +17,12 @@ warnings.filterwarnings(
     "ignore", category=UserWarning, message="Could not infer format"
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("scheduler.log"),  # Log to a file
-        logging.StreamHandler(),  # Log to the console
-    ],
-)
 
-logger = logging.getLogger(__name__)
-with open("passcode.json", "r") as file:
-    data_dict = json.load(file)
-db_names = data_dict.get("DB_NAMES")
-
-
-def update_table(table_name, df, retries=5, delay=30):
+def update_table(passcodes, table_name, df, logger, retries=5, delay=30):
     """
     Updates a database table with manual SQL INSERT statements.
     Completely bypasses df.to_sql() to avoid cursor attribute errors.
     """
-    passcodes = db_names["BI"]
-
     server = passcodes["Server"]
     if "," not in server and "\\" not in server:
         server = f"{server},1433"
@@ -225,7 +204,14 @@ def extract_insurance_data(row):
         return None
 
 
-def Iqama_table(df):
+def Iqama_table(df, logger):
+    """
+    1- Gets unique int iqama numbers from extracted df
+    2- Sends them to Beneficiary API with a random delay using Beneficiary_api()
+    3- Parses the resulting JSON and extracts success/failure status, and insurance data of each request,
+      using extract_api_status() and extract_insurance_data()
+
+    """
     insurance_df = pd.DataFrame()
     # Get unique iqama numbers
     unique_iqama = df["iqama_no"].dropna().unique()
@@ -622,53 +608,6 @@ def parse_row(x):
 
     else:
         return None, None
-
-
-# def _load_json(file_path):
-#     """
-#     Load a JSON file and return its content.
-
-#     Args:
-#         file_path (Path): Path to the JSON file.
-
-#     Returns:
-#         Dict: Content of the JSON file.
-#     """
-#     file_path = Path(file_path)
-#     if not file_path.exists():
-#         print(f"Error: JSON file not found at {file_path}")
-#         raise FileNotFoundError(f"JSON file not found at {file_path}")
-#     with open(file_path, "r") as file:
-#         print(f"Loading JSON file from {file_path}")
-#         return json.load(file)
-
-
-def get_conn_engine(source):
-    """
-    Creates and returns a SQLAlchemy engine for connecting to the SQL database.
-    """
-    if not db_names or source not in db_names:
-        print("Error: Source database configuration not found in JSON file.")
-        raise ValueError("Source database configuration not found in JSON file.")
-    passcodes = db_names[source]
-
-    server, db, uid, pwd, driver = (
-        passcodes["Server"],
-        passcodes["Database"],
-        passcodes["UID"],
-        passcodes["PWD"],
-        passcodes["driver"],
-    )
-    params = quote_plus(
-        f"DRIVER={driver};"
-        f"SERVER={server};"
-        f"DATABASE={db};"
-        f"UID={uid};"
-        f"PWD={pwd};"
-    )
-    engine = create_engine("mssql+pyodbc:///?odbc_connect={}".format(params))
-
-    return engine
 
 
 def init_oracle_client(lib_dir=None):

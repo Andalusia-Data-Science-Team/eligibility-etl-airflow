@@ -1,18 +1,12 @@
-import json
+import logging
 import os
-import smtplib
+import json
 import sys
 from datetime import datetime, timedelta
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from pathlib import Path
 
 import pandas as pd
-import pendulum
 from airflow.decorators import dag, task
-from airflow.utils import timezone
-from airflow.utils.dates import days_ago
-from airflow.utils.email import send_email
 from sqlalchemy import text
 from tqdm import tqdm
 
@@ -20,12 +14,25 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.eligibility import (Iqama_table, change_date, create_json_payload,
                              extract_code, extract_note, extract_outcome,
-                             get_conn_engine, map_row, parse_row,
+                             map_row, parse_row,
                              send_json_to_api, update_table)
-from src.etl_utils import email_list, failure_callback
+from src.etl_utils import get_conn_engine, email_list, START_DATE, failure_callback
 
-CAIRO_TZ = pendulum.timezone("Africa/Cairo")
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("scheduler.log"),  # Log to a file
+        logging.StreamHandler(),  # Log to the console
+    ],
+)
 
+logger = logging.getLogger(__name__)
+
+with open("passcode.json", "r") as file:
+    data_dict = json.load(file)
+db_names = data_dict["DB_NAMES"]
 
 # Enhanced default args with anonymous SMTP configuration
 default_args = {
@@ -44,7 +51,7 @@ default_args = {
 @dag(
     dag_id="eligibility_job_",
     default_args=default_args,
-    start_date=pendulum.now(CAIRO_TZ).subtract(days=1),
+    start_date=START_DATE,
     schedule_interval="0 23,4,8,12,16,20 * * *",  # 12:00 PM, 4 AM, 8 AM, 12 PM, 4 PM, 8 PM
     catchup=False,
     tags=["eligibility", "dotcare", "parallel"],
@@ -66,7 +73,6 @@ def eligibility_etl_pipeline():
     def extract_data(**context):
         """Extract data with overlap handling to prevent data gaps"""
         try:
-            source = "Replica"
             query_path = (
                 Path(__file__).resolve().parent.parent
                 / "sql"
@@ -74,7 +80,7 @@ def eligibility_etl_pipeline():
             )
             query = query_path.read_text()
             current_time = datetime.now()
-            engine = get_conn_engine(source=source)
+            engine = get_conn_engine(db_names["Replica"], logger)
 
             try:
                 with engine.connect() as conn:
@@ -122,7 +128,7 @@ def eligibility_etl_pipeline():
             )
             df_iqama = df_iqama.drop_duplicates(keep="last").reset_index(drop=True)
 
-            result_df = Iqama_table(df_iqama)
+            result_df = Iqama_table(df_iqama, logger)
             result_df["Insertion_Date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
 
             # Save transformed data to file
@@ -229,7 +235,7 @@ def eligibility_etl_pipeline():
             if iqama_info:
                 iqama_df = pd.read_parquet(iqama_info["file_path"])
                 iqama_df.to_csv(f"data/DOT-CARE/iqama_{timestamp}.csv", index=False)
-                update_table(table_name="Iqama_dotcare", df=iqama_df)
+                update_table(passcodes=db_names["BI"], table_name="Iqama_dotcare", df=iqama_df, logger=logger)
                 print(f"Loaded {len(iqama_df)} Iqama records")
 
             # Process Eligibility data
@@ -238,7 +244,7 @@ def eligibility_etl_pipeline():
                 eligibility_df.to_csv(
                     f"data/DOT-CARE/eligibilty_{timestamp}.csv", index=False
                 )
-                update_table(table_name="Eligibility_dotcare", df=eligibility_df)
+                update_table(passcodes=db_names["BI"], table_name="Eligibility_dotcare", df=eligibility_df, logger=logger)
                 print(f"Loaded {len(eligibility_df)} Eligibility records")
 
         except Exception as e:

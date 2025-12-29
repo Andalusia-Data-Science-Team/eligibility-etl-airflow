@@ -1,23 +1,16 @@
 import json
 import logging
 import os
-import smtplib
 import sys
 from datetime import datetime, timedelta
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from pathlib import Path
 
 import pandas as pd
-import pendulum
 from airflow.decorators import dag, task
 from airflow.exceptions import AirflowSkipException
-from airflow.utils import timezone
-from airflow.utils.dates import days_ago
-from airflow.utils.email import send_email
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from src.etl_utils import email_list, failure_callback, read_data, update_table
+from src.etl_utils import email_list, START_DATE, failure_callback, read_data, update_table
 from src.predictions import make_preds
 
 # Configure debug logger
@@ -30,8 +23,6 @@ db_configs = db_configs["DB_NAMES"]
 
 with open(Path("sql") / "claims_prediction.sql", "r") as file:
     query = file.read()
-
-CAIRO_TZ = pendulum.timezone("Africa/Cairo")
 
 # Enhanced default args with anonymous SMTP configuration
 default_args = {
@@ -50,7 +41,7 @@ default_args = {
 @dag(
     dag_id="clinics_predictions_job",
     default_args=default_args,
-    start_date=pendulum.now(CAIRO_TZ).subtract(days=1),
+    start_date=START_DATE,
     schedule_interval="0 23,4,8,12,16,20 * * *",  # Every 4 hours
     catchup=False,
     tags=["predictions", "SNB", "AKW", "ALW", "MKR", "LCH"],

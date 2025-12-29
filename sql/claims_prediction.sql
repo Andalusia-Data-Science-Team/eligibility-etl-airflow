@@ -95,7 +95,7 @@ LEFT JOIN (
     GROUP BY VISITID
 ) AS SAS ON VS.VISITID = SAS.VISITID
 WHERE V.VisitStatusID != 3
-  AND VC.EnName != 'Ambulatory'
+  --AND VC.EnName != 'Ambulatory'
   AND VS.IsDeleted = 0
   AND VS.CompanyShare > 0
   AND VFI.ContractTypeID = 1

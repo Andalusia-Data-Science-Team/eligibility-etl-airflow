@@ -1,18 +1,18 @@
 import smtplib
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import pandas as pd
+import pendulum
 from airflow.utils.email import send_email
 from sqlalchemy import create_engine
 
 email_list = [
     "Nadine.ElSokily@Andalusiagroup.net",
 ]
+START_DATE = pendulum.now(pendulum.timezone("Africa/Cairo")).subtract(days=1)
 
 
 def get_conn_engine(passcodes, logger):
