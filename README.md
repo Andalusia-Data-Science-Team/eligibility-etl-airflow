@@ -320,11 +320,11 @@ The system sends email notifications for:
 
 Common issues:
 - Login timeout expired
-- Login failed for user <user>
+- Login failed for user 'user'
 
-Check the error message in Airflow logs
-Make sure the credentials being used are correct
-Kindly contact Data Engineering team / DBA if the issue persists
+- Check the error message in Airflow logs
+- Make sure the credentials being used are correct
+- Kindly contact Data Engineering team / DBA if the issue persists
 
 **2. API Timeout Issues**
 
