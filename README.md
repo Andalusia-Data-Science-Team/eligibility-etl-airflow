@@ -336,7 +336,7 @@ This might be an API related issue, causing the task to freeze, it never complet
 
 **3. Memory Issues**
 
-![Error Message](images/architecture.png)
+![Error Message](images/error.png)
 
 This is most likely a memory issue, to make sure look for 'Out of Memory (OOM)' errors in webserver logs
 
