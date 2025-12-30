@@ -67,7 +67,6 @@ def resubmission_etl_pipeline():
             )
 
         df = df.drop_duplicates(keep="last")
-        df = df.loc[df["VisitClassificationEnName"] != "Ambulatory"]
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         temp = f"/tmp/extracted_resubmission_{timestamp}.parquet"
         df.to_parquet(temp)

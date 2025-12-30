@@ -104,6 +104,11 @@ def generate_justification(
 
 
 def data_prep(df):
+    """
+    This function prepares the data that is being passed to the llm in each call.
+    It prepares a string of patient demographic and medical info, a list of medically rejected services,
+      and all other services in the case of a drug interaction rejection.
+    """
     patient_info = str(
         df[
             [
@@ -138,7 +143,7 @@ def data_prep(df):
         )
     else:
         rejected = df[["VisitServiceID", "Service_Name", "Note", "Reason"]]
-        rejected = rejected = rejected.dropna(axis=1).to_dict(orient="records")
+        rejected = rejected.dropna(axis=1).to_dict(orient="records")
 
     result = (patient_info, f"Rejected services: {rejected}")
     if all_services is not None:
