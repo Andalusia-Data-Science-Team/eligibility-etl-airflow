@@ -202,6 +202,7 @@ LEFT JOIN VisitMgt.Visit V
 
 -- Filter to only include the most recent request for each VisitID/StatementID
 WHERE REQ.RN = 1
+    AND REQ.VisitClassificationEnName != 'Ambulatory'
   --AND REQ.VisitId IN(500009, 502520, 554552, 556173)-- Optional filter for specific visit
   --AND (ResponseReasonCode LIKE '%MN-1-1%' OR ResponseReasonCode LIKE '%MN-1-2%')-- Optional filter for specific rejection code
   --AND (ResponseReason LIKE '% drug interaction %' OR ResponseReason  LIKE '% Drug combination %' )
