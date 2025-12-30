@@ -318,9 +318,7 @@ The system sends email notifications for:
 
 **1. Database Connection Errors**
 
-Common issues:
-- Login timeout expired
-- Login failed for user 'user'
+Login timeout expired / Login failed for user 'user'
 
 - Check the error message in Airflow logs
 - Make sure the credentials being used are correct
