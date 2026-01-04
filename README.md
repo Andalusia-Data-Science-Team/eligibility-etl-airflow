@@ -166,13 +166,13 @@ docker compose ps
 ### 5. Initialize Airflow
 
 ```bash
-# Access Airflow webserver
-docker-compose exec airflow-webserver bash
-
 # Initialize database (first time only)
 airflow db init
 
-# Create admin user
+# Access Airflow webserver
+docker-compose exec airflow-webserver bash
+
+# Create admin user (required on the first time only when you first build the container)
 airflow users create \
     --username admin \
     --password admin \
