@@ -11,6 +11,7 @@ from sqlalchemy import create_engine
 
 email_list = [
     "Nadine.ElSokily@Andalusiagroup.net",
+    "Aya.Ramadan@Andalusiagroup.net"
 ]
 START_DATE = pendulum.now(pendulum.timezone("Africa/Cairo")).subtract(days=1)
 

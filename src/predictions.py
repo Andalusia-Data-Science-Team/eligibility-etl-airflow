@@ -42,6 +42,7 @@ Even if two services have the same rejection reason, clarify each of them separa
 Do not mention or justify any "Approved" services. If all services are approved, return an empty JSON like: Rejected: {}
 Clarify your reasons in a friendly advice/recommendation tone.
 Return ONLY the raw JSON object. Do not wrap it in markdown code blocks. Your response must start with { and end with }. Do not include ```json or ``` markers.
+Return ONLY rejected services, do NOT return any approved services or explain their necessity.
 """
 
 schema = {
@@ -67,7 +68,7 @@ schema = {
 }
 
 
-def dev_response(info, services, model="accounts/fireworks/models/deepseek-v3p1"):
+def dev_response(info, services, model="accounts/fireworks/models/deepseek-v3p2"):
     """
     Makes predictions on all services in a visit and returns only the rejected ones and their rejection reason.
 
@@ -159,6 +160,20 @@ def clean_llm_json(response: str) -> dict:
     return cleaned
 
 
+def validate_outcome(rejected):
+    """
+    To prevent recent hallucinations where the model output contains reasoning for approved services which
+    get marked as approved by mistake, manually remove any service that has 'approved' in its reasoning.
+    """
+    to_del = []
+    for key, value in rejected.items():
+        if bool(re.search(r'\bapproved\b', value, re.IGNORECASE)):
+            to_del.append(key)
+    for key in to_del:
+        del rejected[key]
+    return rejected
+
+
 def duplicate_services(duplications):
     predictions = {}
     for s in duplications:
@@ -235,13 +250,15 @@ def request_loop(df):
                 continue
 
             try:
-                responses.update(json.loads(answer).get("Rejected", {}))
+                rejections = validate_outcome(json.loads(answer).get("Rejected", {}))
+                responses.update(rejections)
             except (
                 json.JSONDecodeError
             ):  # Errors due to JSON parsing, JSON schema error or unterminated string for example
                 try:
                     cleaned = clean_llm_json(answer)
-                    responses.update(json.loads(cleaned).get("Rejected", {}))
+                    rejections = validate_outcome(json.loads(cleaned).get("Rejected", {}))
+                    responses.update(rejections)
                 except json.JSONDecodeError as e:
                     failed_visits.append(v)
                     logger.error(
@@ -318,6 +335,6 @@ def write_preds(responses, df):
         ]
     ]
 
-    logger.info(f"Final prediction dataframe has {len(pred_df)} rows")
+    logger.info(f"Final prediction dataframe has {len(history_df)} rows")
 
     return history_df
