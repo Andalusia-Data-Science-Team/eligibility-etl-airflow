@@ -386,7 +386,7 @@ isort src/ dags/
 **AI Team**
 - [Muhammed Amr](https://github.com/Mhammedammr)
 - [Nadine Muhammad](https://github.com/Nadine-Muhammad)
----
+- [Aya Muhammed](https://github.com/AyaMohammedd)
 
 **Last Updated**: December 2025
 **Version**: 0.0.1  
