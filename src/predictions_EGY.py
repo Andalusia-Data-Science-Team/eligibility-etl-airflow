@@ -75,7 +75,6 @@ schema = {
     "additionalProperties": False,
 }
 
-
 def dev_response(info, services, model="accounts/fireworks/models/deepseek-v3p1"):
     """
     Makes predictions on all services in a visit and returns only the rejected ones and their rejection reason.

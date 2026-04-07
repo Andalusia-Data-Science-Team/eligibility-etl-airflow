@@ -8,6 +8,7 @@ import pandas as pd
 import pendulum
 from airflow.utils.email import send_email
 from sqlalchemy import create_engine
+from sqlalchemy import text
 
 email_list = [
     "Nadine.ElSokily@Andalusiagroup.net",
@@ -74,9 +75,139 @@ def read_data(query, passcode, logger):
             return pd.read_sql_query(query, get_conn_engine(passcode, logger))
         except Exception as e:
             logger.debug(f"Data extraction attempt failed with error: {str(e)}")
+            logger.exception("Second attempt to execute read_sql_query failed")
+            # Raise so callers can handle retry/failure properly instead of receiving None
+            raise
 
 
-def update_table(passcode, table_name, df, logger, retries=28, delay=500):
+
+
+
+def update_table_KSA(passcode, table_name, df, logger, retries=3, delay=180):
+    try:
+        engine = get_conn_engine(passcode, logger)
+        df_clean = df.copy()
+        
+        # EXACT TABLE NAMES PROVIDED
+        staging_table = "[dbo].[AHJ_Medical_Prediction_Final_Test]"
+        final_table = "DWH_Claims.dbo.AHJ_Medical_Prediction_Final"
+
+        attempt = 0
+        while attempt < retries:
+            try:
+                logger.debug(f"Upsert attempt {attempt+1}/{retries}")
+
+                # STEP 1: Load data into the staging table
+                # We use 'replace' to ensure the staging table only holds the current batch
+                df_clean.to_sql(
+                    name="AHJ_Medical_Prediction_Final_Test", # Name without brackets for pandas
+                    con=engine,
+                    index=False,
+                    if_exists="replace",
+                    schema="dbo"
+                )
+
+                # STEP 2: Construct the MERGE SQL
+                # We wrap columns in [] to handle the '/' in 'Reason/Recommendation'
+                cols = [f"[{col}]" for col in df_clean.columns]
+                update_cols = [f"target.[{col}] = source.[{col}]" for col in df_clean.columns if col != 'VisitServiceID']
+                
+                merge_sql = f"""
+                MERGE INTO {final_table} AS target
+                USING {staging_table} AS source
+                ON target.[VisitServiceID] = source.[VisitServiceID]
+                WHEN MATCHED THEN
+                    UPDATE SET {", ".join(update_cols)}
+                WHEN NOT MATCHED THEN
+                    INSERT ({", ".join(cols)})
+                    VALUES ({", ".join(['source.' + c for c in cols])});
+                """
+
+                # STEP 3: Execute the Merge inside a transaction
+                with engine.begin() as conn:
+                    conn.execute(text(merge_sql))
+                    # Optional: Clean staging table after merge
+                    conn.execute(text(f"TRUNCATE TABLE {staging_table}"))
+
+                logger.info(f"Successfully upserted {len(df_clean)} rows into {final_table}")
+                return 
+                
+            except Exception as e:
+                attempt += 1
+                logger.error(f"Attempt {attempt} failed: {str(e)}")
+                if attempt < retries:
+                    time.sleep(delay)
+                else:
+                    raise
+    except Exception as e:
+        logger.exception(f"Critical error in updating table: {e}")
+        raise
+
+
+
+def update_table_EGY(passcode, table_name, df, logger, retries=3, delay=180):
+    try:
+        engine = get_conn_engine(passcode, logger)
+        df_clean = df.copy()
+        
+        # EXACT TABLE NAMES PROVIDED
+        staging_table = "[dbo].[EGY_MedPred_STG]"
+        final_table = "DWH_Claims.dbo.EGY_MedPred_Final"
+
+        attempt = 0
+        while attempt < retries:
+            try:
+                logger.debug(f"Upsert attempt {attempt+1}/{retries}")
+
+                # STEP 1: Load data into the staging table
+                # We use 'replace' to ensure the staging table only holds the current batch
+                df_clean.to_sql(
+                    name="EGY_MedPred_STG",    # Name without brackets for pandas
+                    con=engine,
+                    index=False,
+                    if_exists="replace",
+                    schema="dbo"
+                )
+
+                # STEP 2: Construct the MERGE SQL
+                # We wrap columns in [] to handle the '/' in 'Reason/Recommendation'
+                cols = [f"[{col}]" for col in df_clean.columns]
+                update_cols = [f"target.[{col}] = source.[{col}]" for col in df_clean.columns if col != 'VisitServiceID']
+                
+                merge_sql = f"""
+                MERGE INTO {final_table} AS target
+                USING {staging_table} AS source
+                ON target.[VisitServiceID] = source.[VisitServiceID]
+                WHEN MATCHED THEN
+                    UPDATE SET {", ".join(update_cols)}
+                WHEN NOT MATCHED THEN
+                    INSERT ({", ".join(cols)})
+                    VALUES ({", ".join(['source.' + c for c in cols])});
+                """
+
+                # STEP 3: Execute the Merge inside a transaction
+                with engine.begin() as conn:
+                    conn.execute(text(merge_sql))
+                    # Optional: Clean staging table after merge
+                    conn.execute(text(f"TRUNCATE TABLE {staging_table}"))
+
+                logger.info(f"Successfully upserted {len(df_clean)} rows into {final_table}")
+                return 
+                
+            except Exception as e:
+                attempt += 1
+                logger.error(f"Attempt {attempt} failed: {str(e)}")
+                if attempt < retries:
+                    time.sleep(delay)
+                else:
+                    raise
+    except Exception as e:
+        logger.exception(f"Critical error in updating table: {e}")
+        raise
+
+
+
+def update_table(passcode, table_name, df, logger, retries=3, delay=180):
     """
     Updates a database table with the given DataFrame. Retries on failure.
 
@@ -119,7 +250,6 @@ def update_table(passcode, table_name, df, logger, retries=28, delay=500):
     except Exception as e:
         logger.exception(f"Critical error in updating table {table_name}: {e}")
         raise
-
 
 def failure_callback(context):
     """Enhanced failure callback with SMTP email sending"""

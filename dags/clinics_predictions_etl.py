@@ -21,7 +21,7 @@ with open("passcode.json", "r") as file:
     db_configs = json.load(file)
 db_configs = db_configs["DB_NAMES"]
 
-with open(Path("sql") / "claims_prediction.sql", "r") as file:
+with open(Path("sql") / "prediction_clinics.sql", "r") as file:
     query = file.read()
 
 # Enhanced default args with anonymous SMTP configuration
@@ -77,7 +77,12 @@ def predictions_etl_pipeline():
     )
     def transform(clinic_name, extracted_data):
         extracted_data = pd.read_parquet(extracted_data)
-        history_df = make_preds(extracted_data)
+        history_df, metrics = make_preds(extracted_data)
+        logger.info("========== LLM COST REPORT ==========")
+        logger.info(f"Total input tokens:  {metrics['total_input_tokens']}")
+        logger.info(f"Total output tokens: {metrics['total_output_tokens']}")
+        logger.info(f"Total tokens:        {metrics['total_tokens']}")
+        logger.info(f"Total cost:         ${metrics['total_cost']:.4f}")
         history_df["BU"] = clinic_name
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         history_file = f"/tmp/history_{clinic_name}_{timestamp}.parquet"
@@ -90,14 +95,48 @@ def predictions_etl_pipeline():
         email=email_list,
     )
     def load(history):
+        logger.info("START LOAD TASK (CLINICS)")
+
+        # Read parquet produced from transform
         history = pd.read_parquet(history)
+
         pred_df = history[
             ["VisitServiceID", "Medical_Prediction", "Reason/Recommendation", "BU"]
         ]
-        update_table(db_configs["BI"], "Clinics_Predictions_DotCare", pred_df, logger)
+
+        # =========================
+        # STEP 1: LOAD BI
+        # =========================
+        logger.info("STEP 1: Loading data into BI table (Clinics_Predictions_DotCare)")
+
         update_table(
-            db_configs["AI"], "Clinics_Claims_Predictions_History", history, logger
+            db_configs["BI"],
+            "Clinics_Predictions_DotCare",
+            pred_df,
+            logger,
         )
+
+        logger.info("BI LOAD COMPLETED SUCCESSFULLY ✅")
+
+        # =========================
+        # LOAD AI AFTER BI SUCCESS
+        # =========================
+        logger.info("STEP 2: Loading data into AI")
+
+        try:
+            update_table(
+                db_configs["AI"],
+                "Clinics_Claims_Predictions_History",
+                history,
+                logger,
+            )
+
+            logger.info("AI LOAD COMPLETED SUCCESSFULLY ✅")
+        except Exception as e:
+            logger.error(f"AI LOAD FAILED: {str(e)}", exc_info=True)
+            logger.warning("AI load failed but continuing to next task")
+
+        logger.info("LOAD TASK FINISHED SUCCESSFULLY 🎉")
 
     @task
     def cleanup_files(extracted_data, transformed_data):

@@ -60,7 +60,7 @@ def resubmission_etl_pipeline():
         email=email_list,
     )
     def extract():
-        df = read_data(query, db_configs["Replica"], logger)
+        df = read_data(query, db_configs["LIVE"], logger)
         if df.empty:
             raise AirflowSkipException(
                 "No data was found in live, quitting resubmission job"

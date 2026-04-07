@@ -23,8 +23,8 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("scheduler.log"),  # Log to a file
-        logging.StreamHandler(),  # Log to the console
+        logging.FileHandler("scheduler.log"),
+        logging.StreamHandler(),
     ],
 )
 
@@ -42,8 +42,8 @@ default_args = {
     "retry_delay": timedelta(minutes=3),
     "email_on_failure": True,
     "email_on_retry": False,
-    "email_on_success": False,  # Set to True if you want success emails for individual tasks
-    "email": email_list,  # Default email list
+    "email_on_success": False,
+    "email": email_list,
     "on_failure_callback": failure_callback,
 }
 
@@ -52,12 +52,11 @@ default_args = {
     dag_id="eligibility_job_",
     default_args=default_args,
     start_date=START_DATE,
-    schedule_interval="0 23,4,8,12,16,20 * * *",  # 12:00 PM, 4 AM, 8 AM, 12 PM, 4 PM, 8 PM
+    schedule_interval="0 23,4,8,12,16,20 * * *",
     catchup=False,
     tags=["eligibility", "dotcare", "parallel"],
-    max_active_runs=3,  # Prevent overlapping runs
+    max_active_runs=3,
     description="ETL pipeline for eligibility data from DOT-CARE with parallel processing",
-    # DAG-level email configuration
     params={
         "email_on_dag_failure": True,
         "notification_emails": email_list,
@@ -73,6 +72,8 @@ def eligibility_etl_pipeline():
     def extract_data(**context):
         """Extract data with overlap handling to prevent data gaps"""
         try:
+            run_id = context["run_id"].replace(":", "_").replace("+", "_")
+
             query_path = (
                 Path(__file__).resolve().parent.parent
                 / "sql"
@@ -80,7 +81,7 @@ def eligibility_etl_pipeline():
             )
             query = query_path.read_text()
             current_time = datetime.now()
-            engine = get_conn_engine(db_names["Replica"], logger)
+            engine = get_conn_engine(db_names["LIVE"], logger)
 
             try:
                 with engine.connect() as conn:
@@ -95,9 +96,8 @@ def eligibility_etl_pipeline():
 
             print(f"Extracted {len(df)} records")
 
-            # For large datasets, save to file instead of XCom to enable parallel processing
             timestamp = current_time.strftime("%Y%m%d_%H%M%S")
-            temp_file = f"/tmp/extracted_data_{timestamp}.parquet"
+            temp_file = f"/tmp/{run_id}_extracted_data_{timestamp}.parquet"
             df.to_parquet(temp_file)
 
             return {"file_path": temp_file, "record_count": len(df)}
@@ -111,49 +111,90 @@ def eligibility_etl_pipeline():
         email_on_retry=False,
         email=email_list,
     )
-    def transform_iqama(extraction_info):
+    def transform_iqama(extraction_info, **context):
         """Transform data for Iqama table"""
         try:
+            run_id = context["run_id"].replace(":", "_").replace("+", "_")
+
+            logger.info("=== TRANSFORM_IQAMA START ===")
+            logger.info(f"Extraction info: {extraction_info}")
+
             if not extraction_info:
+                logger.warning("No extraction info provided to transform_iqama")
                 return None
 
-            # Read from file instead of XCom for better performance
-            df = pd.read_parquet(extraction_info["file_path"])
+            file_path = extraction_info["file_path"]
+            logger.info(f"Reading parquet file from: {file_path}")
+            df = pd.read_parquet(file_path)
+            logger.info(f"Successfully read {len(df)} records from parquet file")
 
-            print(f"Processing {len(df)} records for Iqama transformation")
+            logger.info(f"Processing {len(df)} records for Iqama transformation")
 
-            # Apply transformations
-            df_iqama = (
-                df.apply(map_row, axis=1).drop_duplicates().reset_index(drop=True)
-            )
+            # Apply transformations - map_row step
+            logger.info("Step 1: Applying map_row transformation for Cleaning...")
+            try:
+                df_iqama = (
+                    df.apply(map_row, axis=1).drop_duplicates().reset_index(drop=True)
+                )
+                logger.info(f"After map_row: {len(df_iqama)} records")
+            except Exception as e:
+                logger.error(f"Error in map_row transformation: {str(e)}", exc_info=True)
+                raise
+
+            # Drop duplicates
+            logger.info("Step 2: Dropping duplicates")
             df_iqama = df_iqama.drop_duplicates(keep="last").reset_index(drop=True)
+            logger.info(f"After drop_duplicates: {len(df_iqama)} records")
 
-            result_df = Iqama_table(df_iqama, logger)
+            # Iqama_table step
+            logger.info("Step 3: Calling Iqama_table function (API CALLING)")
+            logger.debug(f"Passing {len(df_iqama)} records to Iqama_table")
+            try:
+                result_df = Iqama_table(df_iqama, logger)
+                logger.info(f"Iqama_table completed successfully, result has {len(result_df)} records")
+            except ConnectionRefusedError as e:
+                logger.error(f"CONNECTION REFUSED in Iqama_table: {str(e)}", exc_info=True)
+                raise
+            except Exception as e:
+                logger.error(f"Error in Iqama_table function: {str(e)}", exc_info=True)
+                raise
+
+            # Add insertion date
+            logger.info("Step 4: Adding insertion date...")
             result_df["Insertion_Date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            logger.info(f"Final result_df has {len(result_df)} records")
 
             # Save transformed data to file
+            logger.info("Step 5: Saving transformed data to parquet...")
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_file = f"/tmp/iqama_transformed_{timestamp}.parquet"
+            output_file = f"/tmp/{run_id}_iqama_transformed_{timestamp}.parquet"
             result_df.to_parquet(output_file)
+            logger.info(f"Successfully saved to {output_file}")
 
             return {"file_path": output_file, "record_count": len(result_df)}
 
-        except Exception as e:
-            print(f"Error in transform_iqama: {str(e)}")
+        except ConnectionRefusedError as e:
+            logger.error(f"CONNECTION REFUSED ERROR in transform_iqama: {str(e)}", exc_info=True)
             raise
+        except Exception as e:
+            logger.error(f"Unexpected error in transform_iqama: {str(e)}", exc_info=True)
+            raise
+        finally:
+            logger.info("=== TRANSFORM_IQAMA END ===")
 
     @task(
         email_on_failure=True,
         email_on_retry=False,
         email=email_list,
     )
-    def transform_eligibility(extraction_info):
+    def transform_eligibility(extraction_info, **context):
         """Transform data for Eligibility table"""
         try:
+            run_id = context["run_id"].replace(":", "_").replace("+", "_")
+
             if not extraction_info:
                 return None
 
-            # Read from file instead of XCom for better performance
             df = pd.read_parquet(extraction_info["file_path"])
             df["insertion_date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -168,7 +209,7 @@ def eligibility_etl_pipeline():
             tqdm.pandas(desc="API Requests")
             df["eligibility_response"] = df.progress_apply(
                 lambda row: send_json_to_api(
-                    create_json_payload(row, source="Replica")
+                    create_json_payload(row, source="LIVE")
                 ),
                 axis=1,
             )
@@ -182,12 +223,8 @@ def eligibility_etl_pipeline():
             )
 
             # Apply business rules
-            df.loc[(df["note"] == "1680 ") & (df["class"].isna()), "class"] = (
-                "out-network"
-            )
-            df.loc[(df["note"] == "1658 ") & (df["class"].isna()), "class"] = (
-                "not-active"
-            )
+            df.loc[(df["note"] == "1680 ") & (df["class"].isna()), "class"] = "out-network"
+            df.loc[(df["note"] == "1658 ") & (df["class"].isna()), "class"] = "not-active"
 
             print(f"The number of the null values equal: {df['outcome'].isna().sum()}")
 
@@ -205,7 +242,7 @@ def eligibility_etl_pipeline():
 
             # Save transformed data to file
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_file = f"/tmp/eligibility_transformed_{timestamp}.parquet"
+            output_file = f"/tmp/{run_id}_eligibility_transformed_{timestamp}.parquet"
             final_df.to_parquet(output_file)
 
             return {"file_path": output_file, "record_count": len(final_df)}
@@ -228,22 +265,18 @@ def eligibility_etl_pipeline():
 
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
 
-            # Create output directory
-            os.makedirs("data/DOT-CARE", exist_ok=True)
+            base_dir = os.path.join(os.path.expanduser("~"), "data", "DOT-CARE")
+            os.makedirs(base_dir, exist_ok=True)
 
-            # Process Iqama data
             if iqama_info:
                 iqama_df = pd.read_parquet(iqama_info["file_path"])
-                iqama_df.to_csv(f"data/DOT-CARE/iqama_{timestamp}.csv", index=False)
+                iqama_df.to_csv(os.path.join(base_dir, f"iqama_{timestamp}.csv"), index=False)
                 update_table(passcodes=db_names["BI"], table_name="Iqama_dotcare", df=iqama_df, logger=logger)
                 print(f"Loaded {len(iqama_df)} Iqama records")
 
-            # Process Eligibility data
             if eligibility_info:
                 eligibility_df = pd.read_parquet(eligibility_info["file_path"])
-                eligibility_df.to_csv(
-                    f"data/DOT-CARE/eligibilty_{timestamp}.csv", index=False
-                )
+                eligibility_df.to_csv(os.path.join(base_dir, f"eligibility_{timestamp}.csv"), index=False)
                 update_table(passcodes=db_names["BI"], table_name="Eligibility_dotcare", df=eligibility_df, logger=logger)
                 print(f"Loaded {len(eligibility_df)} Eligibility records")
 
@@ -261,11 +294,11 @@ def eligibility_etl_pipeline():
 
             if eligibility_info and os.path.exists(eligibility_info["file_path"]):
                 os.remove(eligibility_info["file_path"])
-                print(f"Cleaned up extraction file: {eligibility_info['file_path']}")
+                print(f"Cleaned up eligibility file: {eligibility_info['file_path']}")
 
             if iqama_info and os.path.exists(iqama_info["file_path"]):
                 os.remove(iqama_info["file_path"])
-                print(f"Cleaned up extraction file: {iqama_info['file_path']}")
+                print(f"Cleaned up iqama file: {iqama_info['file_path']}")
         except Exception as e:
             print(f"Error cleaning up extraction file: {str(e)}")
             # Don't raise here as cleanup failure shouldn't fail the DAG
@@ -280,7 +313,7 @@ def eligibility_etl_pipeline():
     # Load data after both transforms complete
     loaded = load_data(iqama_transformed, eligibility_transformed)
 
-    # Clean up extraction file after loading is complete
+    # Clean up all files after loading is complete
     loaded >> cleanup_extraction_file(
         extracted, iqama_transformed, eligibility_transformed
     )
