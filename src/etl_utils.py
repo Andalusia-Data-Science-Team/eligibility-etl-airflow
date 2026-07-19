@@ -11,6 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 
 email_list = [
+    "Doha.Ramadan@Andalusiagroup.net",
     "Nadine.ElSokily@Andalusiagroup.net",
     "Aya.Ramadan@Andalusiagroup.net"
 ]

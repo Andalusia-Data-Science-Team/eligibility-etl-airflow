@@ -276,8 +276,59 @@ def eligibility_etl_pipeline():
 
             if eligibility_info:
                 eligibility_df = pd.read_parquet(eligibility_info["file_path"])
+
+                # DATA QUALITY CHECK
+                logger.info("Checking for data quality issues in Eligibility data...")
+
+                total_rows = len(eligibility_df)
+                if total_rows == 0:
+                    logger.warning("Eligibility dataframe is empty. Skipping data quality checks.")
+                    return
+
+                EXPECTED_NOTE = "1660 TPA doesn't provide adjudication services for this insurer"
+                invalid_rows = eligibility_df[
+                    (eligibility_df["class"].isna()) &
+                    (
+                        eligibility_df["note"] != EXPECTED_NOTE
+                    )
+                ]
+
+                invalid_ratio = len(invalid_rows) / total_rows
+
+                logger.info(f"Null class ratio (excluding expected note): {invalid_ratio:.2%}")
+
+                if invalid_ratio >= 0.50:
+                    logger.error(f"Threshold exceeded! Invalid ratio: {invalid_ratio:.2%}")
+                    logger.error(f"Invalid rows count: {len(invalid_rows)} / {len(eligibility_df)}")
+
+                    # Log distribution
+                    logger.error("Top note values in invalid rows:")
+                    logger.error(invalid_rows["note"].value_counts().head(10).to_string())
+
+                    # Log sample rows
+                    sample_size = 10
+                    logger.error(f"Showing {min(sample_size, len(invalid_rows))} invalid rows sample:")
+                    logger.error(
+                        invalid_rows[
+                            ["visit_id", "outcome", "note", "class"]
+                        ]
+                        .head(sample_size)
+                        .to_string(index=False)
+                    )
+                    raise ValueError(
+                        f"Data quality check failed: {invalid_ratio:.2%} of rows have NULL class "
+                        f"(excluding expected note cases), exceeds 50% threshold"
+                    )
+
+                # Proceed only if safe
                 eligibility_df.to_csv(os.path.join(base_dir, f"eligibility_{timestamp}.csv"), index=False)
-                update_table(passcodes=db_names["BI"], table_name="Eligibility_dotcare", df=eligibility_df, logger=logger)
+                update_table(
+                    passcodes=db_names["BI"],
+                    table_name="Eligibility_dotcare",
+                    df=eligibility_df,
+                    logger=logger
+                )
+
                 print(f"Loaded {len(eligibility_df)} Eligibility records")
 
         except Exception as e:

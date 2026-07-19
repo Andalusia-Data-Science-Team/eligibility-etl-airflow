@@ -372,7 +372,7 @@ def create_json_payload(row, purpose="discovery", source=""):
             "purpose": purpose,
             "patient_id": safe_int_str(row.get("patient_id")),
             "payer_license": safe_int_str(row.get("payer_linces")),
-            "payer_license_2": safe_int_str(row.get("payer_linces_2")),
+            "payer_license_2": safe_int_str(row.get("payer_linces")),
             "serviced_period_start": safe_str(row.get("start_date")),
             "serviced_period_end": safe_str(row.get("end_date")),
             "created_date": safe_str(row.get("start_date")),

@@ -1,0 +1,26 @@
+[
+  {
+    "purpose":"discovery",
+    "patient_id":"1667860",
+    "payer_license":"7000911508",
+    "payer_license_2":"7000911508",
+    "serviced_period_start":"2026-03-10",
+    "serviced_period_end":"2026-04-22",
+    "created_date":"2026-03-10",
+    "patient_name":"Ezz Mansour Rageh alharby",
+    "patient_family_name":"alharby",
+    "patient_given_names":[
+      "Ezz",
+      "Mansour"
+    ],
+    "patient_gender":"male",
+    "patient_birth_date":"2025-06-22",
+    "marital_status_code":"S",
+    "patient_identifier_value":"1218752150",
+    "patient_identifier_type":"NI",
+    "patient_identifier_system":"nationalid",
+    "patient_occupation_code":"others",
+    "insurer_name":"Arabia Insurance Cooperative Company ",
+    "insurer_org_id":"103"
+  }
+]
