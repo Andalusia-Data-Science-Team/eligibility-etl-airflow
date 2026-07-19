@@ -26,7 +26,7 @@ with open("/home/ai/Workspace/AmrJr/eligibility-etl-airflow/passcode.json", "r")
     db_configs = json.load(file)
 db_configs = db_configs["DB_NAMES"]
 
-with open("/home/ai/Workspace/AmrJr/eligibility-etl-airflow/sql/resubmission.sql", "r") as file:
+with open("/home/ai/Workspace/AmrJr/eligibility-etl-airflow/sql/resubmission_update.sql", "r") as file:
     query = file.read()
 
 
@@ -94,6 +94,142 @@ Return your output in a valid JSON format that looks like:
   }
 }
 Where keys are the service id (NOT THE SERVICE NAME/DESCRIPTION) and values are the justification for it
+"""
+
+PROMPT_MN = """
+    You are a medical claims and insurance justification expert.
+
+    Your task is to generate formal medical justifications for insurance claims based on the provided patient information, diagnosis, ordered services, and rejection reason.
+
+    Instructions:
+
+    1. Generate a separate justification for EACH requested service.
+    2. Justify every service as medically necessary according to the patient's diagnosis and clinical condition.
+    3. Every justification must:
+    - Be written in professional medical English.
+    - Contain at least three complete sentences (minimum three lines).
+    - Clearly explain why the requested service is medically necessary.
+    - Support the necessity of the service even if the diagnosis is not directly related to it by explaining its role in evaluation, differential diagnosis, monitoring, treatment planning, pain relief, exclusion of complications, assessment of comorbidities, or patient safety.
+    - Use evidence-based clinical reasoning and appropriate medical terminology.
+    - Address the insurance company directly.
+    - Implicitly emphasize that patient safety and optimal clinical care are the primary considerations.
+    - Avoid generic or repetitive wording.
+
+    4. The insurance rejection reasons may include:
+    - Service is not medically necessary.
+    - Service is not indicated for the documented diagnosis.
+    - Another ordered service performs the same purpose.
+    - Diagnosis is not covered.
+    - Patient age is inconsistent with the service.
+    - Drug interaction or contraindication.
+
+    5. Focus ONLY on the medical rejection reasons listed above. Ignore administrative or technical rejection reasons.
+
+    6. If the rejection concerns drug interaction or contraindication:
+    - Consider which medication may be responsible.
+    - Explain why the prescribed therapy remains clinically appropriate.
+    - Indicate that potential interactions were considered as part of safe medical decision-making.
+    - Emphasize that appropriate monitoring and clinical judgment make the treatment medically justified.
+
+    7. Do NOT:
+    - Mention or criticize the rejection decision.
+    - Say "the insurance company rejected..."
+    - Refer to the insurance company in the third person.
+    - Include a conclusion section.
+    - Invent diagnoses, laboratory results, or clinical findings that are not medically implied.
+
+    Style:
+    - Formal.
+    - Concise but medically detailed.
+    - Approximately the length of the examples below.
+    - Use strong clinical reasoning instead of persuasive or emotional language.
+
+    Example:
+
+    "The patient presented with joint disorders (M25) and generalized fatigue and malaise (R53). These findings may indicate underlying renal impairment associated with inflammatory disease, autoimmune conditions, or medications used in treatment. Serum Creatinine assessment is medically necessary to evaluate renal function before initiating or continuing therapies that may affect kidney function and to support safe treatment planning."
+
+    Another example:
+
+    "This investigation was required to assess cardiac function and rule out structural or functional abnormalities in a critically ill patient. Given the patient's unstable condition and risk of hemodynamic compromise, evaluation of ventricular function and possible cardiac involvement was essential. The findings directly guide treatment decisions and ongoing clinical management."
+
+    Output Requirements:
+
+    Return ONLY valid JSON in the following format:
+
+    {
+    "Justifications": {
+        "127658": "Medical justification...",
+        "135987": "Medical justification..."
+    }
+    }
+
+    Rules:
+    - Keys MUST be the Service IDs exactly as provided.
+    - Do NOT use service names as keys.
+    - Every requested service must have exactly one justification.
+    - Return valid JSON only with no additional text or markdown.
+"""
+
+PROMPT_DUP = """
+    You are a medical claims and insurance justification expert.
+
+    Your task is to generate a formal medical justification for each requested service that was rejected under the category "Duplicated Services."
+
+    Instructions:
+
+    1. Generate one completely independent justification for EACH requested service.
+    2. Assume each service is evaluated individually.
+    3. Do NOT compare the service with any other ordered service.
+    4. Do NOT mention, imply, or reference duplicate services, overlapping services, alternative services, previous services, subsequent services, or services with similar purposes.
+    5. Treat every justification as if only that single service is being reviewed.
+
+    Each justification must:
+
+    - Be written in professional medical English.
+    - Contain at least three complete sentences.
+    - Clearly explain the clinical indication and medical necessity of the requested service.
+    - Demonstrate how the service contributes to patient evaluation, diagnosis, monitoring, treatment planning, exclusion of complications, disease assessment, or patient safety.
+    - Support the necessity of the service even if the documented diagnosis is not obviously related by explaining its diagnostic, therapeutic, monitoring, or preventive clinical value.
+    - Use evidence-based medical reasoning and appropriate clinical terminology.
+    - Address the insurance company directly without mentioning the rejection decision.
+    - Implicitly emphasize that patient safety and appropriate clinical management are the highest priorities.
+    - Remain concise while providing sufficient medical detail.
+
+    Do NOT:
+
+    - Mention duplicated services.
+    - Mention another service before or after this one.
+    - Compare the service with any other investigation, medication, or procedure.
+    - State that this service provides additional information compared to another test.
+    - Mention "instead of", "in addition to", "more than", "better than", or similar comparative language.
+    - Criticize or comment on the rejection reason.
+    - Invent diagnoses, laboratory findings, or clinical results that are not medically implied.
+
+    Examples:
+
+    Example 1:
+    "VBG analysis was medically necessary to evaluate the patient's acid-base balance and respiratory status during the clinical assessment. It provides important information regarding oxygenation, carbon dioxide levels, and metabolic disturbances that directly influence treatment decisions. The investigation supported timely clinical management and appropriate monitoring of the patient's condition."
+
+    Example 2:
+    "This specialized imaging was medically indicated to evaluate posterior fossa structures that require detailed assessment in patients with neurological symptoms. The examination supports accurate identification of clinically significant abnormalities that may influence diagnosis and treatment planning. Performing this study was essential to ensure comprehensive neurological evaluation and safe patient management."
+
+    Output Requirements:
+
+    Return ONLY valid JSON in the following format:
+
+    {
+    "Justifications": {
+        "127658": "Medical justification...",
+        "135987": "Medical justification..."
+    }
+    }
+
+    Rules:
+
+    - Keys MUST be the Service IDs exactly as provided.
+    - Do NOT use service names as keys.
+    - Every requested service must have exactly one justification.
+    - Return valid JSON only.
 """
 
 schema = {
@@ -217,7 +353,7 @@ def transform(extracted_df):
 
 # ─── LLM ──────────────────────────────────────────────────────────────────────
 
-def generate_justification(visit_data, len_rejected, model="deepseek/deepseek-chat-v3.1"):
+def generate_justification(visit_data, len_rejected, model="deepseek/deepseek-chat-v3.1",justification_type:str="MN"):
     json_model = ChatOpenAI(
         model=model,
         base_url="https://openrouter.ai/api/v1",
@@ -228,13 +364,25 @@ def generate_justification(visit_data, len_rejected, model="deepseek/deepseek-ch
         timeout=120,
         extra_body={"response_format": {"type": "json_object"}},
     )
-    chat_history = [
-        SystemMessage(content=prompt),
-        SystemMessage(
-            content=f"You are supposed to return {len_rejected} justifications for {len_rejected} rejected services only."
-        ),
-        HumanMessage(content=str(visit_data)),
-    ]
+    if justification_type == "Medical Necessity":
+        logger.info("justification type is Medical Necessity")
+        chat_history = [
+            SystemMessage(content=PROMPT_MN),
+            SystemMessage(
+                content=f"You are supposed to return {len_rejected} justifications for {len_rejected} rejected services only."
+            ),
+            HumanMessage(content=str(visit_data)),
+        ]
+    elif justification_type == "Duplicated Services":
+        logger.info("justification type is Duplicated Services")
+        chat_history = [
+            SystemMessage(content=PROMPT_DUP),
+            SystemMessage(
+                content=f"You are supposed to return {len_rejected} justifications for {len_rejected} rejected services only."
+            ),
+            HumanMessage(content=str(visit_data)),
+        ]
+
     response = json_model.invoke(chat_history)
     usage = (
         response.response_metadata.get("token_usage")
@@ -247,24 +395,24 @@ def generate_justification(visit_data, len_rejected, model="deepseek/deepseek-ch
 
 def data_prep(df):
     patient_info = str(
-        df[["Gender", "Age", "Diagnosis", "ICD10", "ProblemNote", "Chief_Complaint", "Symptoms"]]
+        df[["Gender", "Age", "Diagnosis", "ICD10", "ProblemNote", "ChiefComplaint", "Symptoms","JustificationType"]]
         .iloc[0]
         .dropna()
         .to_dict()
     )
     all_services = None
-    if (df["Reason"] == "High alert Drug to drug interaction / Drug combination is contra-indicated").any():
+    if (df["RejectionReason"] == "High alert Drug to drug interaction / Drug combination is contra-indicated").any():
         codes = ["MN-1-1", "AD-3-5", "AD-1-4"]
         all_services = df["Service_Name"].to_list()
         rejected = df["Service_Name"].loc[df["ResponseReasonCode"].isin(codes)].to_list()
         all_services = set(all_services) - set(rejected)
         rejected = (
-            df[["VisitServiceID", "Service_Name", "Note", "Reason"]]
+            df[["ServiceID", "Service_Name", "Note", "RejectionReason"]]
             .loc[df["ResponseReasonCode"].isin(codes)]
             .to_dict(orient="records")
         )
     else:
-        rejected = df[["VisitServiceID", "Service_Name", "Note", "Reason"]]
+        rejected = df[["ServiceID", "ServiceName", "Note", "RejectionReason"]]
         rejected = rejected.dropna(axis=1).to_dict(orient="records")
 
     result = (patient_info, f"Rejected services: {rejected}")
@@ -369,7 +517,7 @@ def transform_loop(df, logger):
         visit_data, len_rej = data_prep(sub)
 
         def run_inference():
-            return generate_justification(visit_data, len_rej)
+            return generate_justification(visit_data, len_rej,justification_type=sub["JustificationType"].iloc[0])
 
         try:
             response, usage = run_inference()
@@ -409,17 +557,17 @@ def transform_loop(df, logger):
 
         # ── Save checkpoint batch every N visits ──────────────────────────
         if i % CHECKPOINT_EVERY == 0:
-            batch_df = pd.DataFrame(list(data_dict.items()), columns=["VisitServiceID", "Justification"])
+            batch_df = pd.DataFrame(list(data_dict.items()), columns=["ServiceID", "Justification"])
             if not batch_df.empty:
-                batch_df["VisitServiceID"] = batch_df["VisitServiceID"].astype(int)
+                batch_df["ServiceID"] = batch_df["ServiceID"].astype(int)
                 save_checkpoint(final_table(batch_df, df), batch_num)
                 batch_num += 1
                 data_dict.clear()
 
     # ── Flush any remaining visits ────────────────────────────────────────
     if data_dict:
-        batch_df = pd.DataFrame(list(data_dict.items()), columns=["VisitServiceID", "Justification"])
-        batch_df["VisitServiceID"] = batch_df["VisitServiceID"].astype(int)
+        batch_df = pd.DataFrame(list(data_dict.items()), columns=["ServiceID", "Justification"])
+        batch_df["ServiceID"] = batch_df["ServiceID"].astype(int)
         save_checkpoint(final_table(batch_df, df), batch_num)
 
     logger.debug(f"Failed visits ({len(failed_visits)}): {failed_visits}")
@@ -449,14 +597,15 @@ def transform_loop(df, logger):
 # ─── Final Table ──────────────────────────────────────────────────────────────
 
 def final_table(result_df, df):
-    merged = result_df.merge(df, on="VisitServiceID", how="left")
+    merged = result_df.merge(df, on="ServiceID", how="left")
     merged = merged.loc[merged["Status"] != "approved"]
     merged = merged[
         [
-            "RequestTransactionID", "VisitID", "StatementId", "Sequence",
-            "Service_id", "Justification", "Reason", "Service_Name",
+            "RequestTransactionID", "VisitID", "StatementId", "Sequence","Gender", "Age",
+            "Diagnosis", "ICD10", "ProblemNote", "ChiefComplaint", "Symptoms","JustificationType",
+            "ServiceID", "Justification", "RejectionReason", "ServiceName",
             "VisitStartDate", "ContractorEnName", "VisitClassificationEnName",
-            "VisitServiceID", "ResponseReasonCode",
+            "ResponseReasonCode",
         ]
     ]
     return merged
